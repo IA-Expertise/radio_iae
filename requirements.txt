@@ -7,3 +7,8 @@ python-dotenv>=1.0.0
 pydub>=0.25.0
 feedparser>=6.0.0
 pygame>=2.5.0
+elevenlabs
+feedparser
+google-generativeai
+pydub
+python-dotenv
