@@ -1,0 +1,121 @@
+"""
+News Agent - Rádio IA
+Busca notícias de IA no RSS do Google News e gera roteiro de rádio via Gemini.
+"""
+
+import os
+import re
+from dotenv import load_dotenv
+import feedparser
+import google.generativeai as genai
+
+# URL do RSS Google News para notícias de IA (pt-BR)
+GOOGLE_NEWS_IA_RSS = (
+    "https://news.google.com/rss/search?q=artificial+intelligence"
+    "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+)
+
+# Quantidade de notícias para o roteiro
+TOP_N = 3
+
+
+def _get_api_key() -> str:
+    """Carrega e retorna a GEMINI_API_KEY do arquivo .env."""
+    load_dotenv()
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise ValueError(
+            "GEMINI_API_KEY não encontrada. Defina no arquivo .env na raiz do projeto."
+        )
+    return key
+
+
+def fetch_news() -> list[dict]:
+    """
+    Busca as notícias de IA no RSS do Google News.
+    Retorna lista de entradas com 'title' e 'summary' (ou 'description').
+    """
+    feed = feedparser.parse(GOOGLE_NEWS_IA_RSS)
+    entries = []
+    for entry in feed.entries[:TOP_N]:
+        title = entry.get("title", "").strip()
+        summary = (
+            entry.get("summary", "")
+            or entry.get("description", "")
+            or ""
+        ).strip()
+        # Remove HTML básico se vier no summary
+        if summary and "<" in summary:
+            summary = re.sub(r"<[^>]+>", " ", summary)
+            summary = " ".join(summary.split())
+        entries.append({"title": title, "summary": summary})
+    return entries
+
+
+def build_script_prompt(news: list[dict]) -> str:
+    """Monta o texto das notícias para enviar ao Gemini."""
+    parts = []
+    for i, item in enumerate(news, 1):
+        parts.append(f"**Notícia {i}:** {item['title']}")
+        if item.get("summary"):
+            parts.append(f"Resumo: {item['summary']}")
+    return "\n".join(parts)
+
+
+def generate_radio_script(news: list[dict]) -> str:
+    """
+    Usa o Gemini para transformar as notícias em roteiro de rádio de 1 minuto.
+    Persona: jornalista de rádio tech brasileiro, tom dinâmico, frases curtas,
+    marcações [pausa] e texto otimizado para leitura na ElevenLabs.
+    """
+    api_key = _get_api_key()
+    genai.configure(api_key=api_key)
+
+    system_instruction = """Você é um jornalista de rádio tech brasileiro. Seu tom é dinâmico, profissional e direto.
+Regras estritas para o roteiro:
+- Frases curtas e objetivas.
+- Use a marcação [pausa] entre blocos de fala para respiração e ritmo (ex.: "...no Brasil. [pausa] Agora no mundo...").
+- Duração total: roteiro para leitura de aproximadamente 1 minuto (cerca de 150 a 180 palavras).
+- Foque nas 3 notícias fornecidas; não invente dados.
+- Texto otimizado para síntese de voz (ElevenLabs): evite siglas lidas letra a letra quando puder usar a forma falada; evite números longos ou listas difíceis de falar.
+- Saída: apenas o texto do roteiro, sem título, sem "Roteiro:" ou explicações. Comece direto com a abertura da rádio."""
+
+    model = genai.GenerativeModel(
+        "gemini-1.5-pro",
+        system_instruction=system_instruction,
+    )
+
+    news_text = build_script_prompt(news)
+    user_prompt = f"""Com base nas notícias abaixo, escreva o roteiro de rádio de 1 minuto seguindo as regras da persona.
+
+{news_text}
+
+Gere somente o texto do roteiro, com [pausa] onde fizer sentido."""
+
+    response = model.generate_content(
+        user_prompt,
+        generation_config={
+            "temperature": 0.7,
+            "max_output_tokens": 1024,
+        },
+    )
+
+    if not response.text:
+        raise RuntimeError("Gemini não retornou texto para o roteiro.")
+
+    return response.text.strip()
+
+
+def run() -> str:
+    """
+    Fluxo principal: busca notícias, gera roteiro e retorna o texto.
+    """
+    news = fetch_news()
+    if not news:
+        raise RuntimeError("Nenhuma notícia encontrada no RSS.")
+    return generate_radio_script(news)
+
+
+if __name__ == "__main__":
+    script = run()
+    print(script)

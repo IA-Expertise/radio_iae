@@ -1,0 +1,73 @@
+Plano de Desenvolvimento: Rádio IA News
+🎯 Objetivo
+Criar um sistema de rádio automatizado que busca notícias reais de Inteligência Artificial, gera roteiros jornalísticos, sintetiza voz via ElevenLabs e intercala com uma biblioteca de 32 músicas geradas no Suno.
+
+🛠️ Stack Técnica
+Linguagem: Python 3.10+
+
+Roteirista: Google Gemini API (gemini-1.5-pro)
+
+Locutor: ElevenLabs API (Modelo eleven_multilingual_v2)
+
+Processamento de Áudio: pydub e pygame (para play local) ou FFmpeg.
+
+Músicas: 32 arquivos MP3 em assets/musicas/.
+
+📂 Estrutura de Pastas Esperada
+Plaintext
+/
+├── main.py                # Loop principal (Orquestrador)
+├── core/
+│   ├── news_agent.py      # Scraper de notícias + Prompt Gemini
+│   ├── voice_agent.py     # Integração ElevenLabs
+│   └── mixer.py           # Gerenciamento de playlist e Ducking
+├── assets/
+│   ├── musicas/           # 32 MP3s do Suno
+│   └── vinhetas/          # Vinhetas da rádio
+├── output/                # Cache de locução gerada
+└── .env                   # ELEVENLABS_API_KEY, GEMINI_API_KEY
+🤖 Definição dos Agentes (Instruções para o Cursor)
+1. news_agent.py
+Use feedparser ou requests para buscar notícias de IA (Sugestões: MIT Tech Review, TechCrunch).
+
+Envie o texto para o Gemini com a Persona: "Jornalista de rádio tech, dinâmico, breve e profissional".
+
+O roteiro deve ter no máximo 250 caracteres por notícia.
+
+2. voice_agent.py
+Use a biblioteca oficial elevenlabs.
+
+Configure para usar uma voz estável (Ex: "Rachel" ou "Brian").
+
+Salve o arquivo na pasta output/ com o nome news_latest.mp3.
+
+3. mixer.py (O Sonoplasta)
+Implementar a função get_next_track(): Escolher aleatoriamente uma das 32 músicas sem repetir a mesma nas últimas 10 rodadas.
+
+Implementar Audio Ducking: A trilha musical deve começar, baixar o volume automaticamente (-20dB) quando a voz da ElevenLabs entrar, e subir o volume quando a voz acabar.
+
+🔄 Fluxo do Loop Principal (main.py)
+Tocar Música 1.
+
+Tocar Música 2.
+
+Chamar news_agent para atualizar notícias.
+
+Chamar voice_agent para gerar áudio.
+
+Tocar Música 3 com Ducking (Locutor falando sobre a introdução da música).
+
+Repetir.
+
+🚦 Primeiros Comandos para o Cursor (Copie um por vez no chat)
+Setup de Dependências:
+
+"Cursor, instale as bibliotecas necessárias: pip install elevenlabs google-generativeai python-dotenv pydub feedparser e verifique se o FFmpeg está acessível."
+
+Criação do News Agent:
+
+"Baseado no documento, crie o core/news_agent.py. Ele deve ler o RSS do Google News para 'Artificial Intelligence' e usar o Gemini para criar um roteiro de rádio de 1 minuto."
+
+Integração ElevenLabs:
+
+"Crie o core/voice_agent.py para transformar o roteiro gerado em áudio usando minha chave da ElevenLabs no .env."

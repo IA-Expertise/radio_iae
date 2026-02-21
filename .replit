@@ -1,0 +1,30 @@
+# Rádio IA News - Configuração Replit
+# Habilitar áudio para reprodução da rádio
+audio = true
+
+entrypoint = "main.py"
+modules = ["python-3.10:v18-20230807-322e88b"]
+
+# Instala dependências ao abrir o Repl (primeira vez ou após mudar requirements.txt)
+onBoot = "pip install -r requirements.txt"
+
+[nix]
+channel = "stable-23_05"
+
+[unitTest]
+language = "python3"
+
+[packager]
+language = "python3"
+
+[packager.features]
+guessImports = true
+packageSearch = true
+enabledForHosting = true
+
+[deployment]
+run = ["python3", "main.py"]
+deploymentTarget = "cloudrun"
+
+[run]
+args = ["python3", "main.py"]
