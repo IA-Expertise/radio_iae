@@ -81,7 +81,7 @@ Regras estritas para o roteiro:
 - Saída: apenas o texto do roteiro, sem título, sem "Roteiro:" ou explicações. Comece direto com a abertura da rádio."""
 
     model = genai.GenerativeModel(
-        "gemini-1.5-pro",
+        "gemini-2.5-flash",
         system_instruction=system_instruction,
     )
 
