@@ -4,6 +4,7 @@
 
 # Saída gerada (áudio)
 output/*.mp3
+output/blocks/
 !output/.gitkeep
 
 # Python

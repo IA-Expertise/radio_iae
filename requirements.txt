@@ -1,6 +1,7 @@
 # Rádio IA News - Dependências
 # Python 3.10+
 
+flask>=3.0.0
 elevenlabs>=1.0.0
 google-generativeai>=0.8.0
 python-dotenv>=1.0.0

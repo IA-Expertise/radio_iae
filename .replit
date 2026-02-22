@@ -2,7 +2,7 @@
 # Habilitar áudio para reprodução da rádio
 audio = true
 
-entrypoint = "main.py"
+entrypoint = "app.py"
 modules = ["python-3.10:v18-20230807-322e88b"]
 
 # Instala dependências ao abrir o Repl (primeira vez ou após mudar requirements.txt)
@@ -23,8 +23,8 @@ packageSearch = true
 enabledForHosting = true
 
 [deployment]
-run = ["python3", "main.py"]
+run = ["python3", "app.py"]
 deploymentTarget = "cloudrun"
 
 [run]
-args = ["python3", "main.py"]
+args = ["python3", "app.py"]

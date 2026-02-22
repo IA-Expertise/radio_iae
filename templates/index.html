@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rádio IA News</title>
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --card: #1a1a1f;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --stop: #dc2626;
+      --stop-hover: #ef4444;
+      --text: #e4e4e7;
+      --text-muted: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .container { max-width: 520px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .sub { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem 0;
+      color: var(--text-muted);
+    }
+    .now-playing {
+      font-size: 1.1rem;
+      font-weight: 500;
+      margin-bottom: 1rem;
+      min-height: 1.5em;
+    }
+    .now-playing.news { color: #86efac; }
+    .now-playing.music { color: #93c5fd; }
+    .btn-play {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn-play:hover { background: var(--accent-hover); }
+    .btn-play:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-stop {
+      background: var(--stop);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+    .btn-stop:hover { background: var(--stop-hover); }
+    .btn-stop:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status {
+      font-size: 0.9rem;
+      margin-top: 0.75rem;
+      color: var(--text-muted);
+    }
+    audio { width: 100%; margin-top: 0.5rem; height: 36px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Rádio IA News</h1>
+    <p class="sub">Aperte Play e ouça a programação: notícia → música → música → notícia.</p>
+
+    <div class="card">
+      <h2>Programação</h2>
+      <p id="now-playing" class="now-playing"></p>
+      <button id="btn-play" class="btn-play" type="button">▶ Play</button>
+      <button id="btn-stop" class="btn-stop" type="button">■ Parar</button>
+      <p id="status" class="status"></p>
+      <audio id="player" preload="auto"></audio>
+    </div>
+  </div>
+
+  <script>
+    const btnPlay = document.getElementById('btn-play');
+    const btnStop = document.getElementById('btn-stop');
+    const player = document.getElementById('player');
+    const nowPlaying = document.getElementById('now-playing');
+    const statusEl = document.getElementById('status');
+
+    let playing = false;
+    let pollingStatus = null;
+
+    function setStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    function setNow(type, label) {
+      nowPlaying.textContent = label;
+      nowPlaying.className = 'now-playing ' + (type === 'news' ? 'news' : 'music');
+    }
+
+    async function checkCanPlay() {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      return data.canPlay;
+    }
+
+    async function waitForReady() {
+      setStatus('Preparando blocos de notícia… (pode levar ~1 min)');
+      while (playing) {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (data.canPlay) {
+          setStatus(data.blocksReady + ' bloco(s) pronto(s). Iniciando…');
+          return true;
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      return false;
+    }
+
+    async function playNext() {
+      if (!playing) return;
+      const res = await fetch('/api/next');
+      if (res.status === 503) {
+        const data = await res.json();
+        setStatus(data.message || 'Aguardando…');
+        player.src = '';
+        setTimeout(playNext, 4000);
+        return;
+      }
+      const data = await res.json();
+      if (!data.ready || !data.url) {
+        setStatus('Fim da programação ou erro.');
+        playing = false;
+        btnPlay.disabled = false;
+        btnStop.disabled = true;
+        return;
+      }
+      setNow(data.type, data.type === 'news' ? '📻 Notícias' : '🎵 Música');
+      setStatus('');
+      player.src = data.url;
+      player.play().catch(() => {
+        if (playing) playNext();
+      });
+    }
+
+    player.addEventListener('ended', () => {
+      if (playing) playNext();
+    });
+
+    player.addEventListener('error', () => {
+      if (playing) setTimeout(playNext, 1000);
+    });
+
+    btnPlay.addEventListener('click', async () => {
+      playing = true;
+      btnPlay.disabled = true;
+      btnStop.disabled = false;
+      const ok = await waitForReady();
+      if (!ok) {
+        playing = false;
+        btnPlay.disabled = false;
+        btnStop.disabled = true;
+        return;
+      }
+      playNext();
+    });
+
+    btnStop.addEventListener('click', () => {
+      playing = false;
+      player.pause();
+      player.src = '';
+      nowPlaying.textContent = '';
+      nowPlaying.className = 'now-playing';
+      setStatus('Parado.');
+      btnPlay.disabled = false;
+      btnStop.disabled = true;
+    });
+
+    (async function init() {
+      setStatus('Carregando…');
+      const canPlay = await checkCanPlay();
+      if (canPlay) setStatus('Pronto. Aperte Play para iniciar.');
+      else setStatus('Preparando primeiro bloco em background. Aperte Play em ~1 min.');
+    })();
+  </script>
+</body>
+</html>
