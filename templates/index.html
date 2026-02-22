@@ -138,6 +138,12 @@
       cursor: pointer;
       font-size: 0.9rem;
     }
+    .chat-form button[type="button"] {
+      background: transparent;
+      border: 1px solid var(--text-muted);
+      color: var(--text-muted);
+    }
+    .chat-form button[type="button"]:hover { color: var(--accent); border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -163,11 +169,12 @@
 
     <div class="chat-section">
       <div class="chat-box">
-        <h3>Chat – troque ideias com a galera (IA responde)</h3>
+        <h3>Chat – conversa entre ouvintes (todos conectados veem). IA só quando você pedir.</h3>
         <div class="chat-messages" id="chat-messages"></div>
         <form class="chat-form" id="chat-form">
-          <input type="text" id="chat-input" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="200" />
+          <input type="text" id="chat-input" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="300" />
           <button type="submit">Enviar</button>
+          <button type="button" id="btn-ask-ai" title="Enviar esta mensagem para a IA responder">Perguntar à IA</button>
         </form>
       </div>
     </div>
@@ -189,6 +196,7 @@
 
     let playing = false;
     let musicOnly = false;
+    let isSkipping = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -249,6 +257,8 @@
       setNow(data.type, data.type === 'news' ? '📻 Notícias' : '🎵 Música');
       setTrackTitle(data.title || '');
       setStatus('');
+      isSkipping = false;
+      player.volume = data.type === 'music' ? 0.92 : 1.0;
       player.src = data.url;
       player.play().catch(() => {
         if (playing) setTimeout(playNext, 2000);
@@ -256,7 +266,7 @@
     }
 
     player.addEventListener('ended', () => {
-      if (!playing) return;
+      if (!playing || isSkipping) return;
       setTimeout(playNext, 400);
     });
 
@@ -296,6 +306,7 @@
 
     btnSkip.addEventListener('click', () => {
       if (!playing) return;
+      isSkipping = true;
       player.pause();
       player.src = '';
       playNext();
@@ -308,37 +319,68 @@
       else setStatus('');
     });
 
+    async function refreshChat() {
+      try {
+        const res = await fetch('/api/chat/messages');
+        const data = await res.json();
+        const list = data.messages || [];
+        chatMessages.innerHTML = list.map(m => {
+          const who = m.user || '?';
+          const cls = m.kind === 'ai' ? 'ai' : 'user';
+          return '<p class="' + cls + '">' + who + ': ' + (m.text || '').replace(/</g, '&lt;') + '</p>';
+        }).join('');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      } catch (_) {}
+    }
+
     chatForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const msg = chatInput.value.trim();
       if (!msg) return;
-      const userP = document.createElement('p');
-      userP.className = 'user';
-      userP.textContent = 'Você: ' + msg;
-      chatMessages.appendChild(userP);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-      chatInput.value = '';
       chatInput.disabled = true;
       try {
-        const res = await fetch('/api/chat', {
+        const res = await fetch('/api/chat/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: msg }),
         });
         const data = await res.json();
-        const aiP = document.createElement('p');
-        aiP.className = 'ai';
-        aiP.textContent = 'IA: ' + (data.reply || data.error || '...');
-        chatMessages.appendChild(aiP);
-      } catch (err) {
-        const aiP = document.createElement('p');
-        aiP.className = 'ai';
-        aiP.textContent = 'IA: Erro ao conectar.';
-        chatMessages.appendChild(aiP);
-      }
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (data.ok) {
+          chatInput.value = '';
+          refreshChat();
+        }
+      } catch (_) {}
       chatInput.disabled = false;
     });
+
+    document.getElementById('btn-ask-ai').addEventListener('click', async () => {
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+      const btn = document.getElementById('btn-ask-ai');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/chat/ask-ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          refreshChat();
+        } else {
+          const err = data.error || 'Erro';
+          chatMessages.innerHTML += '<p class="ai">IA: ' + err.replace(/</g, '&lt;') + '</p>';
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      } catch (err) {
+        chatMessages.innerHTML += '<p class="ai">IA: Erro ao conectar.</p>';
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      btn.disabled = false;
+    });
+
+    setInterval(refreshChat, 3000);
+    refreshChat();
 
     (async function init() {
       setStatus('Carregando…');

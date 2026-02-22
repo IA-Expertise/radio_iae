@@ -87,6 +87,18 @@ def get_duck_db() -> int:
     return DUCK_DB
 
 
+def normalize_audio(path: Path, output_path: Path, target_dBFS: float = -2.0) -> None:
+    """Normaliza o áudio para target_dBFS e salva em output_path (equaliza volume)."""
+    seg = AudioSegment.from_file(path)
+    try:
+        diff = target_dBFS - seg.dBFS
+        seg = seg.apply_gain(min(max(diff, -12), 12))
+    except Exception:
+        pass
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    seg.export(output_path, format="mp3")
+
+
 VINHETAS_DIR = BASE_DIR / "assets" / "vinhetas"
 NEWS_BED_FILE = VINHETAS_DIR / "news_bed.mp3"
 # Volume do fundo sob a locução (dB) – um pouco mais alto que antes
@@ -112,6 +124,12 @@ def mix_voice_with_bed(
     voice = AudioSegment.from_file(voice_path)
     bed_raw = AudioSegment.from_file(bed_path)
     voice_len_ms = len(voice)
+    # Deixar a voz em nível estável (evita queda ao longo da narração)
+    try:
+        voice_diff = -3.0 - voice.dBFS
+        voice = voice.apply_gain(min(voice_diff, 10))
+    except Exception:
+        pass
     intro_ms = int(intro_seconds * 1000)
     total_ms = voice_len_ms
     bed_len_ms = len(bed_raw)
@@ -125,6 +143,13 @@ def mix_voice_with_bed(
     voice_rest = voice[intro_ms:]
     part2 = bed_rest.overlay(voice_rest)
     mixed = part1 + part2
+    # Normalizar para volume estável (evita queda ao longo da narração e equaliza)
+    TARGET_DBFS = -2.0
+    try:
+        diff = TARGET_DBFS - mixed.dBFS
+        mixed = mixed.apply_gain(min(diff, 12))
+    except Exception:
+        pass
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mixed.export(output_path, format="mp3")
     return mixed

@@ -16,7 +16,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 import google.generativeai as genai
 
-from core.mixer import get_next_track, mix_voice_with_bed
+from core.mixer import get_next_track, mix_voice_with_bed, normalize_audio
 from core.news_agent import run as news_run
 from core.voice_agent import run as voice_run
 
@@ -83,7 +83,7 @@ def _generate_one_block() -> bool:
         if NEWS_BED_PATH.is_file():
             mix_voice_with_bed(NEWS_FILE, NEWS_BED_PATH, dest)
         else:
-            shutil.copy2(NEWS_FILE, dest)
+            normalize_audio(NEWS_FILE, dest)
         with _lock:
             ready_blocks.append(name)
         return True
@@ -214,14 +214,45 @@ def audio_music(filename):
     return send_file(path, mimetype="audio/mpeg", as_attachment=False)
 
 
-# ---------- Chat (ouvintes + IA) ----------
+# ---------- Chat (humanos compartilhado; IA só quando solicitar) ----------
 
-CHAT_SYSTEM = """Você é a locutora da Rádio IAE News: jovem, descolada e antenada. Os ouvintes estão no chat. Responda em 1 ou 2 frases curtas, tom amigável e informal. Não faça listas longas. Se perguntarem sobre a rádio ou IA, pode mencionar que a rádio é feita com IA pela IAExpertise."""
+CHAT_MESSAGES: list[dict] = []
+CHAT_MAX = 100
+
+CHAT_AI_SYSTEM = """Você é a locutora da Rádio IAE News: jovem, descolada e antenada. Alguém pediu sua opinião no chat. Responda em 1 ou 2 frases curtas, tom amigável. Se perguntarem sobre a rádio ou IA, pode mencionar que a rádio é feita com IA pela IAExpertise."""
 
 
-@app.route("/api/chat", methods=["POST"])
-def api_chat():
-    """Recebe mensagem do chat e devolve resposta da IA (persona da locutora)."""
+@app.route("/api/chat/messages")
+def api_chat_messages():
+    """Lista as últimas mensagens do chat (compartilhado entre ouvintes)."""
+    with _lock:
+        last = CHAT_MESSAGES[-50:] if len(CHAT_MESSAGES) > 50 else CHAT_MESSAGES
+    return jsonify({"messages": last})
+
+
+@app.route("/api/chat/send", methods=["POST"])
+def api_chat_send():
+    """Envia mensagem para o chat (entre humanos)."""
+    try:
+        data = request.get_json() or {}
+        msg = (data.get("message") or "").strip()
+        user = (data.get("user") or "Ouvinte").strip()[:30]
+        if not msg:
+            return jsonify({"ok": False, "error": "Mensagem vazia"}), 400
+        if len(msg) > 300:
+            msg = msg[:300]
+        with _lock:
+            CHAT_MESSAGES.append({"user": user or "Ouvinte", "text": msg, "kind": "human"})
+            if len(CHAT_MESSAGES) > CHAT_MAX:
+                CHAT_MESSAGES.pop(0)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/chat/ask-ai", methods=["POST"])
+def api_chat_ask_ai():
+    """Pergunta à IA (locutora) quando o usuário solicita. Resposta aparece no chat."""
     try:
         data = request.get_json() or {}
         msg = (data.get("message") or "").strip()
@@ -231,9 +262,13 @@ def api_chat():
         if not key:
             return jsonify({"ok": False, "error": "GEMINI_API_KEY não configurada"}), 500
         genai.configure(api_key=key)
-        model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=CHAT_SYSTEM)
+        model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=CHAT_AI_SYSTEM)
         response = model.generate_content(msg, generation_config={"temperature": 0.8, "max_output_tokens": 150})
         reply = (response.text or "").strip()
+        with _lock:
+            CHAT_MESSAGES.append({"user": "IA", "text": reply, "kind": "ai"})
+            if len(CHAT_MESSAGES) > CHAT_MAX:
+                CHAT_MESSAGES.pop(0)
         return jsonify({"ok": True, "reply": reply})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
