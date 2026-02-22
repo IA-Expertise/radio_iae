@@ -85,3 +85,33 @@ def create_ducked_mix(
 def get_duck_db() -> int:
     """Retorna o valor de ducking em dB (negativo)."""
     return DUCK_DB
+
+
+VINHETAS_DIR = BASE_DIR / "assets" / "vinhetas"
+NEWS_BED_FILE = VINHETAS_DIR / "news_bed.mp3"
+# Volume do fundo musical sob a locução (dB)
+BED_DB = -28
+
+
+def mix_voice_with_bed(
+    voice_path: Path,
+    bed_path: Path,
+    output_path: Path,
+    bed_db: int = BED_DB,
+) -> AudioSegment:
+    """
+    Coloca a locução por cima de um áudio de fundo (bed).
+    O bed é repetido se for mais curto que a voz. Salva em output_path.
+    """
+    voice = AudioSegment.from_file(voice_path)
+    bed = AudioSegment.from_file(bed_path).apply_gain(bed_db)
+    voice_len_ms = len(voice)
+    bed_len_ms = len(bed)
+    if bed_len_ms < voice_len_ms:
+        repeat = (voice_len_ms // bed_len_ms) + 1
+        bed = bed * repeat
+    bed = bed[:voice_len_ms]
+    mixed = bed.overlay(voice)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    mixed.export(output_path, format="mp3")
+    return mixed

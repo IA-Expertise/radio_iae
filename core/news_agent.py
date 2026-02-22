@@ -75,7 +75,7 @@ def generate_radio_script(news: list[dict]) -> str:
 Regras estritas para o roteiro:
 - Frases curtas e objetivas.
 - Use a marcação [pausa] entre blocos de fala para respiração e ritmo (ex.: "...no Brasil. [pausa] Agora no mundo...").
-- Duração total: roteiro para leitura de aproximadamente 1 minuto (cerca de 150 a 180 palavras).
+- Duração: roteiro para leitura de aproximadamente 1 minuto (cerca de 200 a 250 palavras). Gere a NOTÍCIA COMPLETA sobre o tema: desenvolva cada ponto, não resuma em uma frase. O ouvinte deve entender o contexto e o desfecho.
 - Foque nas 3 notícias fornecidas; não invente dados.
 - Texto otimizado para síntese de voz (ElevenLabs): evite siglas lidas letra a letra quando puder usar a forma falada; evite números longos ou listas difíceis de falar.
 - Saída: apenas o texto do roteiro, sem título, sem "Roteiro:" ou explicações. Comece direto com a abertura da rádio."""
@@ -86,17 +86,17 @@ Regras estritas para o roteiro:
     )
 
     news_text = build_script_prompt(news)
-    user_prompt = f"""Com base nas notícias abaixo, escreva o roteiro de rádio de 1 minuto seguindo as regras da persona.
+    user_prompt = f"""Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de até 1 minuto de leitura. Desenvolva cada notícia, não apenas cite. O texto deve dar contexto e conclusão. Use [pausa] onde fizer sentido.
 
 {news_text}
 
-Gere somente o texto do roteiro, com [pausa] onde fizer sentido."""
+Gere somente o texto do roteiro."""
 
     response = model.generate_content(
         user_prompt,
         generation_config={
             "temperature": 0.7,
-            "max_output_tokens": 1024,
+            "max_output_tokens": 1500,
         },
     )
 

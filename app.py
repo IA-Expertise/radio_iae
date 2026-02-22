@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from flask import Flask, jsonify, render_template, send_file
 
-from core.mixer import get_next_track
+from core.mixer import get_next_track, mix_voice_with_bed
 from core.news_agent import run as news_run
 from core.voice_agent import run as voice_run
 
@@ -26,6 +26,15 @@ BLOCKS_DIR = OUTPUT_DIR / "blocks"
 NEWS_FILE = OUTPUT_DIR / "news_latest.mp3"
 DUCKED_FILE = OUTPUT_DIR / "ducked_latest.mp3"
 MUSICAS_DIR = BASE_DIR / "assets" / "musicas"
+VINHETAS_DIR = BASE_DIR / "assets" / "vinhetas"
+NEWS_BED_PATH = VINHETAS_DIR / "news_bed.mp3"
+
+# Mensagens de encerramento (alternadas a cada bloco)
+CLOSING_MESSAGES = [
+    "A Rádio IAE News é uma criação da IAExpertise Inteligência Artificial. Para saber mais, visite iaexpertise.com.br. [pausa] Vamos de música!",
+    "A Rádio IAE News é totalmente criada e executada por Inteligência Artificial e a sua empresa também pode ter uma rádio personalizada no seu site. Fale com a IAExpertise.",
+]
+_closing_index = 0
 
 # Fila de blocos de notícia prontos (nomes de arquivo)
 ready_blocks: list[str] = []
@@ -47,18 +56,32 @@ def _next_block_id() -> int:
         return _block_counter
 
 
+def _get_next_closing() -> str:
+    """Retorna a próxima mensagem de encerramento (alternada)."""
+    global _closing_index
+    with _lock:
+        msg = CLOSING_MESSAGES[_closing_index % len(CLOSING_MESSAGES)]
+        _closing_index += 1
+    return msg
+
+
 def _generate_one_block() -> bool:
-    """Gera um bloco (notícias → voz) e adiciona à fila. Retorna True se ok."""
+    """Gera um bloco (notícias + encerramento → voz, opcionalmente com bed) e adiciona à fila."""
     global ready_blocks
     try:
         script = news_run()
-        voice_run(script)
+        closing = _get_next_closing()
+        full_script = script.strip() + " [pausa] " + closing
+        voice_run(full_script)
         if not NEWS_FILE.is_file():
             return False
         BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
         name = f"block_{_next_block_id():06d}.mp3"
         dest = BLOCKS_DIR / name
-        shutil.copy2(NEWS_FILE, dest)
+        if NEWS_BED_PATH.is_file():
+            mix_voice_with_bed(NEWS_FILE, NEWS_BED_PATH, dest)
+        else:
+            shutil.copy2(NEWS_FILE, dest)
         with _lock:
             ready_blocks.append(name)
         return True
