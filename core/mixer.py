@@ -8,8 +8,9 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
-# Caminho da pasta de músicas (32 MP3s)
-MUSICAS_DIR = Path(__file__).resolve().parent.parent / "assets" / "musicas"
+# Caminho da pasta de músicas
+BASE_DIR = Path(__file__).resolve().parent.parent
+MUSICAS_DIR = BASE_DIR / "assets" / "musicas"
 # Quantas rodadas não repetir a mesma faixa
 HISTORY_SIZE = 10
 # Redução de volume da música quando a voz entra (dB)
@@ -20,10 +21,13 @@ _track_history: list[str] = []
 
 
 def _get_music_files() -> list[Path]:
-    """Lista todos os MP3 em assets/musicas/."""
-    if not MUSICAS_DIR.is_dir():
-        return []
-    return sorted(MUSICAS_DIR.glob("*.mp3"), key=lambda p: p.name)
+    """Lista todos os MP3 em assets/musicas/; se vazio, usa a raiz do projeto."""
+    files: list[Path] = []
+    if MUSICAS_DIR.is_dir():
+        files = sorted(MUSICAS_DIR.glob("*.mp3"), key=lambda p: p.name)
+    if not files:
+        files = sorted(BASE_DIR.glob("*.mp3"), key=lambda p: p.name)
+    return files
 
 
 def get_next_track() -> Path | None:

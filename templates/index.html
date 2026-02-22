@@ -156,16 +156,19 @@
       setStatus('');
       player.src = data.url;
       player.play().catch(() => {
-        if (playing) playNext();
+        if (playing) setTimeout(playNext, 2000);
       });
     }
 
     player.addEventListener('ended', () => {
-      if (playing) playNext();
+      if (!playing) return;
+      setTimeout(playNext, 400);
     });
 
     player.addEventListener('error', () => {
-      if (playing) setTimeout(playNext, 1000);
+      if (!playing) return;
+      setStatus('Erro ao carregar áudio. Tentando próximo em 3s…');
+      setTimeout(playNext, 3000);
     });
 
     btnPlay.addEventListener('click', async () => {

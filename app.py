@@ -10,6 +10,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, jsonify, render_template, send_file
 
@@ -33,8 +34,10 @@ _block_counter = 0
 # Ciclo: 0 = notícia, 1 = música, 2 = música, depois volta a 0
 _cycle_index = 0
 # Mínimo de blocos para manter em background
-MIN_BLOCKS = 2
-TARGET_BLOCKS = 3
+MIN_BLOCKS = 1
+TARGET_BLOCKS = 2
+# Intervalo entre gerações (evita muitas chamadas à ElevenLabs)
+GENERATOR_INTERVAL_SEC = 90
 
 
 def _next_block_id() -> int:
@@ -64,19 +67,14 @@ def _generate_one_block() -> bool:
 
 
 def _background_generator():
-    """Thread: mantém a fila com TARGET_BLOCKS blocos prontos."""
+    """Thread: mantém a fila com blocos prontos, com intervalo para não sobrecarregar a API."""
     while True:
         try:
             with _lock:
                 n = len(ready_blocks)
-            if n < MIN_BLOCKS:
-                _generate_one_block()
-            time.sleep(2)
-            with _lock:
-                n = len(ready_blocks)
             if n < TARGET_BLOCKS:
                 _generate_one_block()
-            time.sleep(30)
+            time.sleep(GENERATOR_INTERVAL_SEC)
         except Exception:
             time.sleep(60)
 
@@ -140,7 +138,7 @@ def api_next():
             return jsonify({"ready": False, "message": "Nenhuma música em assets/musicas e nenhum bloco disponível."}), 503
         return jsonify({
             "ready": True,
-            "url": f"/audio/music/{track.name}",
+            "url": "/audio/music/" + quote(track.name, safe=""),
             "type": "music",
         })
 
@@ -158,10 +156,12 @@ def audio_block(filename):
 
 @app.route("/audio/music/<filename>")
 def audio_music(filename):
-    """Serve uma música de assets/musicas."""
+    """Serve uma música: primeiro assets/musicas, depois raiz do projeto."""
     if not _safe_music_filename(filename):
         return jsonify({"error": "invalid"}), 404
     path = MUSICAS_DIR / filename
+    if not path.is_file():
+        path = BASE_DIR / filename
     if not path.is_file():
         return jsonify({"error": "not found"}), 404
     return send_file(path, mimetype="audio/mpeg", as_attachment=False)

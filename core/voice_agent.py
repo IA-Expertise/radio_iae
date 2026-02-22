@@ -16,6 +16,23 @@ DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUTPUT_FILE = OUTPUT_DIR / "news_latest.mp3"
 
+# Client reutilizado para evitar muitas requisições GET (voices/models) a cada bloco
+_client: ElevenLabs | None = None
+
+
+def _get_client() -> ElevenLabs:
+    """Retorna o client ElevenLabs (criado uma vez e reutilizado)."""
+    global _client
+    if _client is None:
+        load_dotenv()
+        key = os.getenv("ELEVENLABS_API_KEY")
+        if not key:
+            raise ValueError(
+                "ELEVENLABS_API_KEY não encontrada. Defina no arquivo .env na raiz do projeto."
+            )
+        _client = ElevenLabs(api_key=key)
+    return _client
+
 
 def _get_api_key() -> str:
     """Carrega e retorna a ELEVENLABS_API_KEY do arquivo .env."""
@@ -38,10 +55,8 @@ def generate_audio(script: str, voice_id: str | None = None) -> Path:
     Gera áudio do roteiro via ElevenLabs e salva em output/news_latest.mp3.
     Retorna o path do arquivo gerado.
     """
-    api_key = _get_api_key()
+    client = _get_client()
     voice_id = voice_id or os.getenv("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE_ID
-
-    client = ElevenLabs(api_key=api_key)
     text = _text_for_tts(script)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
