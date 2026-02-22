@@ -5,6 +5,7 @@ Blocos de notícia gerados em background; usuário aperta Play e ouve a rádio.
 """
 
 import os
+import random
 import re
 import shutil
 import threading
@@ -38,6 +39,23 @@ CLOSING_MESSAGES = [
 ]
 _closing_index = 0
 
+# Dicas de IA (alternam com as notícias na programação)
+DICA_INTROS = [
+    "Você sabia? [pausa] ",
+    "Dica de IA: [pausa] ",
+    "Olha só: [pausa] ",
+]
+DICA_TIPS = [
+    "A ferramenta Nano Banana do Google permite que você crie imagens incríveis e realistas a partir da sua foto.",
+    "A BitDance acaba de lançar o Seedance2, uma IA incrível onde você pode gerar cenas de vídeo com qualidade cinematográfica.",
+    "A ferramenta Imagen do Google permite criar imagens realistas a partir de uma descrição em texto.",
+    "O ChatGPT da OpenAI pode ajudar a resumir documentos longos em segundos.",
+    "Ferramentas como Midjourney e DALL-E transformam ideias em arte digital com poucas palavras.",
+    "Assistentes de voz com IA já conseguem agendar compromissos e responder e-mails sozinhos.",
+    "Você pode usar IA para gerar legendas e traduções automáticas em vídeos.",
+    "Ferramentas de IA ajudam programadores a escrever código mais rápido e com menos erros.",
+]
+
 # Fila de blocos de notícia prontos (nomes de arquivo)
 ready_blocks: list[str] = []
 _lock = threading.Lock()
@@ -68,10 +86,16 @@ def _get_next_closing() -> str:
 
 
 def _generate_one_block() -> bool:
-    """Gera um bloco (notícias + encerramento → voz, opcionalmente com bed) e adiciona à fila."""
+    """Gera um bloco: notícias OU dica de IA (aleatório), + encerramento → voz, opcionalmente com bed."""
     global ready_blocks
     try:
-        script = news_run()
+        use_dica = random.random() < 0.35
+        if use_dica:
+            intro = random.choice(DICA_INTROS)
+            tip = random.choice(DICA_TIPS)
+            script = intro + tip
+        else:
+            script = news_run()
         closing = _get_next_closing()
         full_script = script.strip() + " [pausa] " + closing
         voice_run(full_script)
@@ -230,15 +254,32 @@ def api_chat_messages():
     return jsonify({"messages": last})
 
 
+def _chat_moderation(text: str) -> bool:
+    """Retorna True se a mensagem for adequada; False se tiver xingamentos/besteiras."""
+    bad = (
+        "caralho", "porra", "merda", "puta", "vagabund", "fodase", "foda-se", "vai tomar",
+        "cu ", " cu", "cus", "buceta", "bct", "piroca", "rola", "arrombad", "viado", "viad",
+        "idiota", "imbecil", "estupido", "estúpido", "burro", "otario", "otário",
+        "morre", "matar", "morte a", "ódio", "odeio",
+    )
+    t = text.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    for w in bad:
+        if w in t:
+            return False
+    return True
+
+
 @app.route("/api/chat/send", methods=["POST"])
 def api_chat_send():
-    """Envia mensagem para o chat (entre humanos)."""
+    """Envia mensagem para o chat (entre humanos). Moderação: bloqueia xingamentos."""
     try:
         data = request.get_json() or {}
         msg = (data.get("message") or "").strip()
         user = (data.get("user") or "Ouvinte").strip()[:30]
         if not msg:
             return jsonify({"ok": False, "error": "Mensagem vazia"}), 400
+        if not _chat_moderation(msg):
+            return jsonify({"ok": False, "error": "Mensagem contém termos inadequados. Seja respeitoso."}), 400
         if len(msg) > 300:
             msg = msg[:300]
         with _lock:

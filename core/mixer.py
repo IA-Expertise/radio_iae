@@ -87,14 +87,33 @@ def get_duck_db() -> int:
     return DUCK_DB
 
 
-def normalize_audio(path: Path, output_path: Path, target_dBFS: float = -2.0) -> None:
-    """Normaliza o áudio para target_dBFS e salva em output_path (equaliza volume)."""
+def _normalize_segments(seg: AudioSegment, segment_ms: int = 5000, target_dBFS: float = -3.0) -> AudioSegment:
+    """Normaliza por segmentos para evitar queda de volume ao longo do áudio."""
+    out = []
+    n = len(seg)
+    start = 0
+    while start < n:
+        end = min(start + segment_ms, n)
+        chunk = seg[start:end]
+        try:
+            diff = target_dBFS - chunk.dBFS
+            chunk = chunk.apply_gain(min(max(diff, -10), 12))
+        except Exception:
+            pass
+        out.append(chunk)
+        start = end
+    if not out:
+        return seg
+    result = out[0]
+    for c in out[1:]:
+        result += c
+    return result
+
+
+def normalize_audio(path: Path, output_path: Path, target_dBFS: float = -1.5) -> None:
+    """Normaliza por segmentos e salva (volume estável, equalizado com música)."""
     seg = AudioSegment.from_file(path)
-    try:
-        diff = target_dBFS - seg.dBFS
-        seg = seg.apply_gain(min(max(diff, -12), 12))
-    except Exception:
-        pass
+    seg = _normalize_segments(seg, segment_ms=5000, target_dBFS=target_dBFS)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     seg.export(output_path, format="mp3")
 
@@ -119,17 +138,13 @@ def mix_voice_with_bed(
     """
     Intro: bed sozinho em volume mais alto (intro_seconds).
     Depois: bed abaixa (bed_db) e a locução entra por cima até o fim.
-    O bed é repetido se for mais curto que o total. Salva em output_path.
+    Voz normalizada por segmentos para evitar queda de volume. Sem cortes.
     """
     voice = AudioSegment.from_file(voice_path)
-    bed_raw = AudioSegment.from_file(bed_path)
     voice_len_ms = len(voice)
-    # Deixar a voz em nível estável (evita queda ao longo da narração)
-    try:
-        voice_diff = -3.0 - voice.dBFS
-        voice = voice.apply_gain(min(voice_diff, 10))
-    except Exception:
-        pass
+    voice = _normalize_segments(voice, segment_ms=5000, target_dBFS=-3.0)
+
+    bed_raw = AudioSegment.from_file(bed_path)
     intro_ms = int(intro_seconds * 1000)
     total_ms = voice_len_ms
     bed_len_ms = len(bed_raw)
@@ -143,13 +158,7 @@ def mix_voice_with_bed(
     voice_rest = voice[intro_ms:]
     part2 = bed_rest.overlay(voice_rest)
     mixed = part1 + part2
-    # Normalizar para volume estável (evita queda ao longo da narração e equaliza)
-    TARGET_DBFS = -2.0
-    try:
-        diff = TARGET_DBFS - mixed.dBFS
-        mixed = mixed.apply_gain(min(diff, 12))
-    except Exception:
-        pass
+    mixed = _normalize_segments(mixed, segment_ms=8000, target_dBFS=-1.5)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mixed.export(output_path, format="mp3")
     return mixed

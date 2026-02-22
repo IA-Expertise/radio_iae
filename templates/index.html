@@ -169,12 +169,11 @@
 
     <div class="chat-section">
       <div class="chat-box">
-        <h3>Chat – conversa entre ouvintes (todos conectados veem). IA só quando você pedir.</h3>
+        <h3>Chat – conversa entre ouvintes (todos na rádio veem). Respeite os outros.</h3>
         <div class="chat-messages" id="chat-messages"></div>
         <form class="chat-form" id="chat-form">
           <input type="text" id="chat-input" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="300" />
           <button type="submit">Enviar</button>
-          <button type="button" id="btn-ask-ai" title="Enviar esta mensagem para a IA responder">Perguntar à IA</button>
         </form>
       </div>
     </div>
@@ -257,12 +256,12 @@
       setNow(data.type, data.type === 'news' ? '📻 Notícias' : '🎵 Música');
       setTrackTitle(data.title || '');
       setStatus('');
-      isSkipping = false;
-      player.volume = data.type === 'music' ? 0.92 : 1.0;
+      player.volume = data.type === 'music' ? 0.82 : 1.0;
       player.src = data.url;
       player.play().catch(() => {
         if (playing) setTimeout(playNext, 2000);
       });
+      setTimeout(function() { isSkipping = false; }, 200);
     }
 
     player.addEventListener('ended', () => {
@@ -348,35 +347,13 @@
         if (data.ok) {
           chatInput.value = '';
           refreshChat();
-        }
-      } catch (_) {}
-      chatInput.disabled = false;
-    });
-
-    document.getElementById('btn-ask-ai').addEventListener('click', async () => {
-      const msg = chatInput.value.trim();
-      if (!msg) return;
-      const btn = document.getElementById('btn-ask-ai');
-      btn.disabled = true;
-      try {
-        const res = await fetch('/api/chat/ask-ai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-          refreshChat();
         } else {
-          const err = data.error || 'Erro';
-          chatMessages.innerHTML += '<p class="ai">IA: ' + err.replace(/</g, '&lt;') + '</p>';
-          chatMessages.scrollTop = chatMessages.scrollHeight;
+          statusEl.textContent = data.error || 'Erro ao enviar.';
         }
-      } catch (err) {
-        chatMessages.innerHTML += '<p class="ai">IA: Erro ao conectar.</p>';
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+      } catch (_) {
+        statusEl.textContent = 'Erro ao enviar.';
       }
-      btn.disabled = false;
+      chatInput.disabled = false;
     });
 
     setInterval(refreshChat, 3000);
