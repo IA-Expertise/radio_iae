@@ -86,7 +86,7 @@
     }
     .btn-stop:hover { background: var(--stop-hover); }
     .btn-stop:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-skip, .btn-music-only {
+    .btn-music-only {
       background: var(--card);
       border: 1px solid var(--text-muted);
       color: var(--text);
@@ -160,7 +160,6 @@
       <div class="btn-row">
         <button id="btn-play" class="btn-play" type="button">▶ Play</button>
         <button id="btn-stop" class="btn-stop" type="button">■ Parar</button>
-        <button id="btn-skip" class="btn-skip" type="button" title="Próximo">⏭ Avançar</button>
         <button id="btn-music-only" class="btn-music-only" type="button">🎵 Só músicas</button>
       </div>
       <p id="status" class="status"></p>
@@ -182,7 +181,6 @@
   <script>
     const btnPlay = document.getElementById('btn-play');
     const btnStop = document.getElementById('btn-stop');
-    const btnSkip = document.getElementById('btn-skip');
     const btnMusicOnly = document.getElementById('btn-music-only');
     const player = document.getElementById('player');
     const nowPlaying = document.getElementById('now-playing');
@@ -195,7 +193,6 @@
 
     let playing = false;
     let musicOnly = false;
-    let isSkipping = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -256,16 +253,15 @@
       setNow(data.type, data.type === 'news' ? '📻 Notícias' : '🎵 Música');
       setTrackTitle(data.title || '');
       setStatus('');
-      player.volume = data.type === 'music' ? 0.82 : 1.0;
+      player.volume = data.type === 'music' ? 1.0 : 0.72;
       player.src = data.url;
       player.play().catch(() => {
         if (playing) setTimeout(playNext, 2000);
       });
-      setTimeout(function() { isSkipping = false; }, 200);
     }
 
     player.addEventListener('ended', () => {
-      if (!playing || isSkipping) return;
+      if (!playing) return;
       setTimeout(playNext, 400);
     });
 
@@ -301,14 +297,6 @@
       setStatus('Parado.');
       btnPlay.disabled = false;
       btnStop.disabled = true;
-    });
-
-    btnSkip.addEventListener('click', () => {
-      if (!playing) return;
-      isSkipping = true;
-      player.pause();
-      player.src = '';
-      playNext();
     });
 
     btnMusicOnly.addEventListener('click', () => {
