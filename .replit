@@ -10,6 +10,7 @@ onBoot = "pip install -r requirements.txt"
 
 [nix]
 channel = "stable-23_05"
+packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "ffmpeg-full", "fontconfig", "freetype", "libjpeg", "libpng", "pkg-config", "portmidi"]
 
 [unitTest]
 language = "python3"
@@ -28,3 +29,29 @@ deploymentTarget = "cloudrun"
 
 [run]
 args = ["python3", "app.py"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Rádio IA News"
+
+[[workflows.workflow]]
+name = "Rádio IA News"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 app.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[agent]
+expertMode = true

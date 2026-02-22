@@ -7,6 +7,11 @@ output/*.mp3
 output/blocks/
 !output/.gitkeep
 
+# Músicas e áudio gerado (não versionar MP3; cada ambiente tem os seus)
+*.mp3
+!output/.gitkeep
+!assets/musicas/.gitkeep
+
 # Python
 __pycache__/
 *.py[cod]
