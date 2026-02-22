@@ -13,3 +13,4 @@ feedparser
 google-generativeai
 pydub
 python-dotenv
+flask
