@@ -9,9 +9,10 @@ from dotenv import load_dotenv
 import feedparser
 import google.generativeai as genai
 
-# URL do RSS Google News para notícias de IA (pt-BR)
+# URL do RSS Google News – busca "dicas de IA" (pt-BR)
+# Equivalente a: https://news.google.com/search?q=dicas+de+IA&hl=pt-BR&gl=BR&ceid=BR:pt-419
 GOOGLE_NEWS_IA_RSS = (
-    "https://news.google.com/rss/search?q=artificial+intelligence"
+    "https://news.google.com/rss/search?q=dicas+de+IA"
     "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
 )
 
