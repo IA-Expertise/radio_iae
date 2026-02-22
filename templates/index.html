@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rádio IA News</title>
+  <title>Rádio IAE News</title>
   <style>
     :root {
       --bg: #0f0f12;
@@ -22,11 +22,13 @@
       color: var(--text);
       margin: 0;
       min-height: 100vh;
-      padding: 2rem;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
     }
-    .container { max-width: 520px; margin: 0 auto; }
+    .container { max-width: 560px; margin: 0 auto; width: 100%; flex: 1; }
     h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.25rem; }
-    .sub { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 2rem; }
+    .sub { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1rem; }
     .card {
       background: var(--card);
       border-radius: 12px;
@@ -39,21 +41,34 @@
       margin: 0 0 0.75rem 0;
       color: var(--text-muted);
     }
-    .now-playing {
-      font-size: 1.1rem;
-      font-weight: 500;
-      margin-bottom: 1rem;
-      min-height: 1.5em;
-    }
+    .now-playing { font-size: 1rem; font-weight: 500; margin-bottom: 0.5rem; min-height: 1.2em; }
     .now-playing.news { color: #86efac; }
     .now-playing.music { color: #93c5fd; }
+    .track-scroll {
+      overflow: hidden;
+      white-space: nowrap;
+      margin-bottom: 0.75rem;
+      padding: 0.25rem 0;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+    .track-scroll span {
+      display: inline-block;
+      padding-left: 100%;
+      animation: scroll 15s linear infinite;
+    }
+    @keyframes scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
     .btn-play {
       background: var(--accent);
       color: white;
       border: none;
-      padding: 0.75rem 1.5rem;
+      padding: 0.6rem 1.2rem;
       border-radius: 8px;
-      font-size: 1rem;
+      font-size: 0.95rem;
       cursor: pointer;
       font-weight: 600;
     }
@@ -63,47 +78,117 @@
       background: var(--stop);
       color: white;
       border: none;
-      padding: 0.75rem 1.5rem;
+      padding: 0.6rem 1.2rem;
       border-radius: 8px;
-      font-size: 1rem;
+      font-size: 0.95rem;
       cursor: pointer;
       font-weight: 600;
-      margin-left: 0.5rem;
     }
     .btn-stop:hover { background: var(--stop-hover); }
     .btn-stop:disabled { opacity: 0.5; cursor: not-allowed; }
-    .status {
+    .btn-skip, .btn-music-only {
+      background: var(--card);
+      border: 1px solid var(--text-muted);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
       font-size: 0.9rem;
-      margin-top: 0.75rem;
-      color: var(--text-muted);
+      cursor: pointer;
     }
+    .btn-music-only.active { border-color: var(--accent); color: var(--accent); }
+    .status { font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted); }
     audio { width: 100%; margin-top: 0.5rem; height: 36px; }
+
+    .chat-section { margin-top: auto; }
+    .chat-box {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1rem;
+      max-height: 220px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-box h3 { font-size: 0.95rem; color: var(--text-muted); margin: 0 0 0.5rem 0; }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      font-size: 0.9rem;
+      margin-bottom: 0.5rem;
+      min-height: 80px;
+    }
+    .chat-messages p { margin: 0.35rem 0; }
+    .chat-messages .user { color: #93c5fd; }
+    .chat-messages .ai { color: #86efac; }
+    .chat-form { display: flex; gap: 0.5rem; }
+    .chat-form input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--text-muted);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .chat-form button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Rádio IA News</h1>
-    <p class="sub">Aperte Play e ouça a programação: notícia → música → música → notícia.</p>
+    <h1>Rádio IAE News</h1>
+    <p class="sub">Play: notícia → música → música → notícia. Ou só músicas.</p>
 
     <div class="card">
       <h2>Programação</h2>
       <p id="now-playing" class="now-playing"></p>
-      <button id="btn-play" class="btn-play" type="button">▶ Play</button>
-      <button id="btn-stop" class="btn-stop" type="button">■ Parar</button>
+      <div class="track-scroll" id="track-scroll">
+        <span id="track-title"></span>
+      </div>
+      <div class="btn-row">
+        <button id="btn-play" class="btn-play" type="button">▶ Play</button>
+        <button id="btn-stop" class="btn-stop" type="button">■ Parar</button>
+        <button id="btn-skip" class="btn-skip" type="button" title="Próximo">⏭ Avançar</button>
+        <button id="btn-music-only" class="btn-music-only" type="button">🎵 Só músicas</button>
+      </div>
       <p id="status" class="status"></p>
       <audio id="player" preload="auto"></audio>
+    </div>
+
+    <div class="chat-section">
+      <div class="chat-box">
+        <h3>Chat – troque ideias com a galera (IA responde)</h3>
+        <div class="chat-messages" id="chat-messages"></div>
+        <form class="chat-form" id="chat-form">
+          <input type="text" id="chat-input" placeholder="Digite sua mensagem..." autocomplete="off" maxlength="200" />
+          <button type="submit">Enviar</button>
+        </form>
+      </div>
     </div>
   </div>
 
   <script>
     const btnPlay = document.getElementById('btn-play');
     const btnStop = document.getElementById('btn-stop');
+    const btnSkip = document.getElementById('btn-skip');
+    const btnMusicOnly = document.getElementById('btn-music-only');
     const player = document.getElementById('player');
     const nowPlaying = document.getElementById('now-playing');
     const statusEl = document.getElementById('status');
+    const trackTitle = document.getElementById('track-title');
+    const trackScroll = document.getElementById('track-scroll');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
 
     let playing = false;
-    let pollingStatus = null;
+    let musicOnly = false;
 
     function setStatus(msg) {
       statusEl.textContent = msg;
@@ -114,6 +199,11 @@
       nowPlaying.className = 'now-playing ' + (type === 'news' ? 'news' : 'music');
     }
 
+    function setTrackTitle(title) {
+      trackTitle.textContent = title || '';
+      trackScroll.style.display = title ? 'block' : 'none';
+    }
+
     async function checkCanPlay() {
       const res = await fetch('/api/status');
       const data = await res.json();
@@ -121,7 +211,7 @@
     }
 
     async function waitForReady() {
-      setStatus('Preparando blocos de notícia… (pode levar ~1 min)');
+      setStatus('Preparando blocos… (pode levar ~1 min)');
       while (playing) {
         const res = await fetch('/api/status');
         const data = await res.json();
@@ -134,9 +224,13 @@
       return false;
     }
 
+    function apiNextUrl() {
+      return musicOnly ? '/api/next?mode=music_only' : '/api/next';
+    }
+
     async function playNext() {
       if (!playing) return;
-      const res = await fetch('/api/next');
+      const res = await fetch(apiNextUrl());
       if (res.status === 503) {
         const data = await res.json();
         setStatus(data.message || 'Aguardando…');
@@ -146,13 +240,14 @@
       }
       const data = await res.json();
       if (!data.ready || !data.url) {
-        setStatus('Fim da programação ou erro.');
+        setStatus('Fim ou erro.');
         playing = false;
         btnPlay.disabled = false;
         btnStop.disabled = true;
         return;
       }
       setNow(data.type, data.type === 'news' ? '📻 Notícias' : '🎵 Música');
+      setTrackTitle(data.title || '');
       setStatus('');
       player.src = data.url;
       player.play().catch(() => {
@@ -167,7 +262,7 @@
 
     player.addEventListener('error', () => {
       if (!playing) return;
-      setStatus('Erro ao carregar áudio. Tentando próximo em 3s…');
+      setStatus('Erro ao carregar. Próximo em 3s…');
       setTimeout(playNext, 3000);
     });
 
@@ -175,12 +270,14 @@
       playing = true;
       btnPlay.disabled = true;
       btnStop.disabled = false;
-      const ok = await waitForReady();
-      if (!ok) {
-        playing = false;
-        btnPlay.disabled = false;
-        btnStop.disabled = true;
-        return;
+      if (!musicOnly) {
+        const ok = await waitForReady();
+        if (!ok) {
+          playing = false;
+          btnPlay.disabled = false;
+          btnStop.disabled = true;
+          return;
+        }
       }
       playNext();
     });
@@ -191,16 +288,63 @@
       player.src = '';
       nowPlaying.textContent = '';
       nowPlaying.className = 'now-playing';
+      setTrackTitle('');
       setStatus('Parado.');
       btnPlay.disabled = false;
       btnStop.disabled = true;
     });
 
+    btnSkip.addEventListener('click', () => {
+      if (!playing) return;
+      player.pause();
+      player.src = '';
+      playNext();
+    });
+
+    btnMusicOnly.addEventListener('click', () => {
+      musicOnly = !musicOnly;
+      btnMusicOnly.classList.toggle('active', musicOnly);
+      if (musicOnly) setStatus('Modo só músicas. Aperte Play.');
+      else setStatus('');
+    });
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+      const userP = document.createElement('p');
+      userP.className = 'user';
+      userP.textContent = 'Você: ' + msg;
+      chatMessages.appendChild(userP);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      chatInput.value = '';
+      chatInput.disabled = true;
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        });
+        const data = await res.json();
+        const aiP = document.createElement('p');
+        aiP.className = 'ai';
+        aiP.textContent = 'IA: ' + (data.reply || data.error || '...');
+        chatMessages.appendChild(aiP);
+      } catch (err) {
+        const aiP = document.createElement('p');
+        aiP.className = 'ai';
+        aiP.textContent = 'IA: Erro ao conectar.';
+        chatMessages.appendChild(aiP);
+      }
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      chatInput.disabled = false;
+    });
+
     (async function init() {
       setStatus('Carregando…');
       const canPlay = await checkCanPlay();
-      if (canPlay) setStatus('Pronto. Aperte Play para iniciar.');
-      else setStatus('Preparando primeiro bloco em background. Aperte Play em ~1 min.');
+      if (canPlay) setStatus('Pronto. Aperte Play.');
+      else setStatus('Preparando primeiro bloco. Aperte Play em ~1 min.');
     })();
   </script>
 </body>

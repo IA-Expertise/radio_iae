@@ -12,7 +12,9 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Flask, jsonify, render_template, send_file
+from flask import Flask, jsonify, render_template, request, send_file
+
+import google.generativeai as genai
 
 from core.mixer import get_next_track, mix_voice_with_bed
 from core.news_agent import run as news_run
@@ -130,14 +132,33 @@ def api_status():
     })
 
 
+def _music_title(track_path: Path) -> str:
+    """Nome da faixa para exibição (sem .mp3, limpo)."""
+    name = track_path.stem
+    if name.endswith(" (1)") or name.endswith(" (2)"):
+        name = name.rsplit(" (", 1)[0].strip()
+    return name or track_path.name
+
+
 @app.route("/api/next")
 def api_next():
     """
-    Próximo item da programação: notícia ou música.
-    Ciclo: notícia → música → música → notícia → ...
+    Próximo item: notícia ou música. Query: mode=music_only para só músicas.
+    Ciclo normal: notícia → música → música → notícia → ...
     """
     global _cycle_index
+    music_only = request.args.get("mode") == "music_only"
     with _lock:
+        if music_only:
+            track = get_next_track()
+            if track is None:
+                return jsonify({"ready": False, "message": "Nenhuma música disponível."}), 503
+            return jsonify({
+                "ready": True,
+                "url": "/audio/music/" + quote(track.name, safe=""),
+                "type": "music",
+                "title": _music_title(track),
+            })
         if _cycle_index % 3 == 0:
             if not ready_blocks:
                 return jsonify({"ready": False, "message": "Preparando primeiro bloco..."}), 503
@@ -147,6 +168,7 @@ def api_next():
                 "ready": True,
                 "url": f"/audio/block/{block_name}",
                 "type": "news",
+                "title": "Notícias IA",
             })
         track = get_next_track()
         _cycle_index += 1
@@ -157,12 +179,14 @@ def api_next():
                     "ready": True,
                     "url": f"/audio/block/{block_name}",
                     "type": "news",
+                    "title": "Notícias IA",
                 })
-            return jsonify({"ready": False, "message": "Nenhuma música em assets/musicas e nenhum bloco disponível."}), 503
+            return jsonify({"ready": False, "message": "Nenhuma música e nenhum bloco disponível."}), 503
         return jsonify({
             "ready": True,
             "url": "/audio/music/" + quote(track.name, safe=""),
             "type": "music",
+            "title": _music_title(track),
         })
 
 
@@ -188,6 +212,31 @@ def audio_music(filename):
     if not path.is_file():
         return jsonify({"error": "not found"}), 404
     return send_file(path, mimetype="audio/mpeg", as_attachment=False)
+
+
+# ---------- Chat (ouvintes + IA) ----------
+
+CHAT_SYSTEM = """Você é a locutora da Rádio IAE News: jovem, descolada e antenada. Os ouvintes estão no chat. Responda em 1 ou 2 frases curtas, tom amigável e informal. Não faça listas longas. Se perguntarem sobre a rádio ou IA, pode mencionar que a rádio é feita com IA pela IAExpertise."""
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """Recebe mensagem do chat e devolve resposta da IA (persona da locutora)."""
+    try:
+        data = request.get_json() or {}
+        msg = (data.get("message") or "").strip()
+        if not msg:
+            return jsonify({"ok": False, "error": "Mensagem vazia"}), 400
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            return jsonify({"ok": False, "error": "GEMINI_API_KEY não configurada"}), 500
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=CHAT_SYSTEM)
+        response = model.generate_content(msg, generation_config={"temperature": 0.8, "max_output_tokens": 150})
+        reply = (response.text or "").strip()
+        return jsonify({"ok": True, "reply": reply})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ---------- Rotas legadas (gerar sob demanda e ouvir último) ----------

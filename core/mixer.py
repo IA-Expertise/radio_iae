@@ -89,8 +89,11 @@ def get_duck_db() -> int:
 
 VINHETAS_DIR = BASE_DIR / "assets" / "vinhetas"
 NEWS_BED_FILE = VINHETAS_DIR / "news_bed.mp3"
-# Volume do fundo musical sob a locução (dB)
-BED_DB = -28
+# Volume do fundo sob a locução (dB) – um pouco mais alto que antes
+BED_DB = -25
+# Intro: bed em volume quase normal (ms e dB), depois abaixa para a locução entrar
+INTRO_SECONDS = 2.5
+INTRO_BED_DB = -6
 
 
 def mix_voice_with_bed(
@@ -98,20 +101,30 @@ def mix_voice_with_bed(
     bed_path: Path,
     output_path: Path,
     bed_db: int = BED_DB,
+    intro_seconds: float = INTRO_SECONDS,
+    intro_bed_db: int = INTRO_BED_DB,
 ) -> AudioSegment:
     """
-    Coloca a locução por cima de um áudio de fundo (bed).
-    O bed é repetido se for mais curto que a voz. Salva em output_path.
+    Intro: bed sozinho em volume mais alto (intro_seconds).
+    Depois: bed abaixa (bed_db) e a locução entra por cima até o fim.
+    O bed é repetido se for mais curto que o total. Salva em output_path.
     """
     voice = AudioSegment.from_file(voice_path)
-    bed = AudioSegment.from_file(bed_path).apply_gain(bed_db)
+    bed_raw = AudioSegment.from_file(bed_path)
     voice_len_ms = len(voice)
-    bed_len_ms = len(bed)
-    if bed_len_ms < voice_len_ms:
-        repeat = (voice_len_ms // bed_len_ms) + 1
-        bed = bed * repeat
-    bed = bed[:voice_len_ms]
-    mixed = bed.overlay(voice)
+    intro_ms = int(intro_seconds * 1000)
+    total_ms = voice_len_ms
+    bed_len_ms = len(bed_raw)
+    if bed_len_ms < total_ms:
+        repeat = (total_ms // bed_len_ms) + 1
+        bed_raw = bed_raw * repeat
+    bed_raw = bed_raw[:total_ms]
+
+    part1 = bed_raw[:intro_ms].apply_gain(intro_bed_db)
+    bed_rest = bed_raw[intro_ms:voice_len_ms].apply_gain(bed_db)
+    voice_rest = voice[intro_ms:]
+    part2 = bed_rest.overlay(voice_rest)
+    mixed = part1 + part2
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mixed.export(output_path, format="mp3")
     return mixed
