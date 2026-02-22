@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin – Rádio IAE News</title>
+  <style>
+    :root {
+      --bg: #0f0f12;
+      --card: #1a1a1f;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --text: #e4e4e7;
+      --text-muted: #71717a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { font-size: 0.85rem; margin-top: 1rem; color: var(--text-muted); min-height: 1.2em; }
+    a { color: var(--accent); text-decoration: none; margin-top: 1rem; display: inline-block; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Gerar blocos da semana</h1>
+    <p>Dispara a geração dos 15 blocos (notícias + dicas). Use uma vez por semana. Só você tem este link.</p>
+    <button id="btn-gerar" class="btn" type="button">📻 Gerar blocos da semana</button>
+    <p id="status" class="status"></p>
+    <a href="/">← Voltar para a Rádio</a>
+  </div>
+
+  <script>
+    const btn = document.getElementById('btn-gerar');
+    const statusEl = document.getElementById('status');
+
+    function getKey() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('key') || '';
+    }
+
+    btn.addEventListener('click', async () => {
+      const key = getKey();
+      if (!key) {
+        statusEl.textContent = 'Chave não encontrada. Use o link que você salvou nos favoritos.';
+        return;
+      }
+      btn.disabled = true;
+      statusEl.textContent = 'Iniciando geração…';
+      try {
+        const res = await fetch('/api/gerar-semana', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: key }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          statusEl.textContent = data.message || 'Geração em background. Aguarde alguns minutos.';
+        } else {
+          statusEl.textContent = data.error || 'Erro.';
+        }
+      } catch (_) {
+        statusEl.textContent = 'Erro ao chamar a API.';
+      }
+      btn.disabled = false;
+    });
+  </script>
+</body>
+</html>

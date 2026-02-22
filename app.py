@@ -1,7 +1,8 @@
 """
 Rádio IA News - Interface web
 Programação contínua: notícia → música → música → notícia.
-Blocos de notícia gerados em background; usuário aperta Play e ouve a rádio.
+Blocos de notícia gerados toda segunda-feira em lote (RSS + dicas → voz → disco);
+a rádio usa esses blocos durante a semana, minimizando uso de APIs (Gemini + ElevenLabs).
 """
 
 import os
@@ -10,6 +11,7 @@ import re
 import shutil
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -62,11 +64,12 @@ _lock = threading.Lock()
 _block_counter = 0
 # Ciclo: 0 = notícia, 1 = música, 2 = música, depois volta a 0
 _cycle_index = 0
-# Mínimo de blocos para manter em background
-MIN_BLOCKS = 1
-TARGET_BLOCKS = 2
-# Intervalo entre gerações (evita muitas chamadas à ElevenLabs)
-GENERATOR_INTERVAL_SEC = 90
+
+# Atualização semanal: toda segunda gera um lote e usa durante a semana (minimiza APIs)
+LAST_WEEKLY_FILE = OUTPUT_DIR / "last_weekly_generation.txt"
+BLOCKS_PER_WEEK = 15
+WEEKLY_CHECK_INTERVAL_SEC = 6 * 3600  # verificar a cada 6h se é segunda e precisa gerar
+DELAY_BETWEEN_BLOCKS_SEC = 3  # intervalo entre blocos no lote (evita rate limit)
 
 
 def _next_block_id() -> int:
@@ -115,17 +118,81 @@ def _generate_one_block() -> bool:
         return False
 
 
-def _background_generator():
-    """Thread: mantém a fila com blocos prontos, com intervalo para não sobrecarregar a API."""
+def _load_blocks_from_disk() -> None:
+    """Carrega a lista de blocos já gravados em output/blocks/ para ready_blocks."""
+    global ready_blocks, _block_counter
+    if not BLOCKS_DIR.is_dir():
+        return
+    names = sorted(f.name for f in BLOCKS_DIR.glob("block_*.mp3") if _safe_block_filename(f.name))
+    with _lock:
+        ready_blocks.clear()
+        ready_blocks.extend(names)
+        # Atualiza contador para o próximo ID (evita sobrescrever arquivos)
+        for n in names:
+            try:
+                num = int(n.replace("block_", "").replace(".mp3", ""))
+                _block_counter = max(_block_counter, num)
+            except ValueError:
+                pass
+
+
+def _should_run_weekly_generation() -> bool:
+    """True se for segunda e (nunca gerou ou última geração foi há 6+ dias)."""
+    now = datetime.now(timezone.utc)
+    if now.weekday() != 0:
+        return False
+    if not LAST_WEEKLY_FILE.is_file():
+        return True
+    try:
+        with open(LAST_WEEKLY_FILE) as f:
+            s = f.read().strip()
+        last = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return (now - last).days >= 6
+    except Exception:
+        return True
+
+
+def _run_weekly_batch() -> None:
+    """Gera um lote de blocos (notícias/dicas), grava em output/blocks/ e atualiza last_weekly."""
+    global ready_blocks, _block_counter
+    BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        ready_blocks.clear()
+        _block_counter = 0
+    for f in BLOCKS_DIR.glob("block_*.mp3"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+    for _ in range(BLOCKS_PER_WEEK):
+        _generate_one_block()
+        time.sleep(DELAY_BETWEEN_BLOCKS_SEC)
+    now = datetime.now(timezone.utc)
+    LAST_WEEKLY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(LAST_WEEKLY_FILE, "w") as f:
+        f.write(now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+
+def _weekly_generator_thread():
+    """
+    Toda segunda-feira gera um lote de blocos (notícias/dicas), grava em output/blocks/
+    e usa esses blocos durante a semana. Minimiza uso de Gemini + ElevenLabs.
+    """
+    global ready_blocks, _block_counter
     while True:
         try:
-            with _lock:
-                n = len(ready_blocks)
-            if n < TARGET_BLOCKS:
-                _generate_one_block()
-            time.sleep(GENERATOR_INTERVAL_SEC)
+            need = _should_run_weekly_generation()
+            if not need:
+                # Primeira execução sem blocos: gera um lote para não ficar sem conteúdo
+                with _lock:
+                    n = len(ready_blocks)
+                if n == 0:
+                    need = True
+            if need:
+                _run_weekly_batch()
+            time.sleep(WEEKLY_CHECK_INTERVAL_SEC)
         except Exception:
-            time.sleep(60)
+            time.sleep(3600)
 
 
 def _safe_block_filename(name: str) -> bool:
@@ -138,6 +205,48 @@ def _safe_music_filename(name: str) -> bool:
     return "/" not in name and "\\" not in name and name.endswith(".mp3")
 
 
+# ---------- Geração semanal (manual ou automática) ----------
+
+def _check_admin_secret() -> bool:
+    """True se a requisição traz o ADMIN_SECRET (body ou header X-Admin-Key)."""
+    secret_env = os.getenv("ADMIN_SECRET", "").strip()
+    if not secret_env:
+        return False
+    data = request.get_json(silent=True) or {}
+    secret = data.get("secret") or request.headers.get("X-Admin-Key") or ""
+    return secret == secret_env
+
+
+@app.route("/admin")
+def admin_page():
+    """Só quem acessar com ?key=ADMIN_SECRET vê o botão de gerar. Salve esse link nos favoritos do celular."""
+    key = request.args.get("key", "")
+    if key != os.getenv("ADMIN_SECRET", "").strip():
+        return "Não encontrado.", 404
+    return render_template("admin.html")
+
+
+@app.route("/api/gerar-semana", methods=["POST"])
+def api_gerar_semana():
+    """
+    Gera o lote semanal (15 blocos). Exige secret (só quem vem da página /admin?key=... envia).
+    """
+    if not _check_admin_secret():
+        return jsonify({"ok": False, "error": "Acesso negado."}), 403
+    def _run():
+        try:
+            _run_weekly_batch()
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({
+        "ok": True,
+        "message": "Geração da semana iniciada em background. Em alguns minutos os blocos estarão disponíveis. Atualize o status.",
+    })
+
+
 # ---------- Rotas da programação contínua ----------
 
 @app.route("/")
@@ -147,7 +256,7 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """Retorna se há blocos prontos para iniciar a programação."""
+    """Retorna se há blocos prontos (blocos da semana, gerados toda segunda)."""
     with _lock:
         n = len(ready_blocks)
     return jsonify({
@@ -361,7 +470,8 @@ def audio_ducked():
 
 def main():
     BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
-    t = threading.Thread(target=_background_generator, daemon=True)
+    _load_blocks_from_disk()
+    t = threading.Thread(target=_weekly_generator_thread, daemon=True)
     t.start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
