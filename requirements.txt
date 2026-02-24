@@ -12,3 +12,5 @@ feedparser>=6.0.0
 requests>=2.28.0
 beautifulsoup4>=4.11.0
 pygame>=2.5.0
+numpy
+pyloudnorm
