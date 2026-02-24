@@ -1,12 +1,19 @@
 """
 Mixer (Sonoplasta) - Rádio IA
 Escolhe faixas da playlist sem repetir nas últimas 10 e aplica ducking (música -20dB durante a voz).
+Normalização LUFS: blocos em -23 LUFS + 7 dB (alvo -16 LUFS).
 """
 
 import random
 from pathlib import Path
 
+import numpy as np
 from pydub import AudioSegment
+
+# Normalização de loudness para blocos (ex.: boletins)
+TARGET_LUFS = -23.0
+EXTRA_DB = 7.0
+FINAL_LUFS = TARGET_LUFS + EXTRA_DB  # -16 LUFS
 
 # Caminho da pasta de músicas
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -79,12 +86,55 @@ def create_ducked_mix(
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         mixed.export(output_path, format="mp3")
+        normalize_lufs(output_path)
     return mixed
 
 
 def get_duck_db() -> int:
     """Retorna o valor de ducking em dB (negativo)."""
     return DUCK_DB
+
+
+def normalize_lufs(path: Path, target_lufs: float = FINAL_LUFS) -> None:
+    """
+    Normaliza o áudio do arquivo para o alvo em LUFS (ex.: -23 + 7 dB = -16 LUFS).
+    Sobrescreve o arquivo. Se pyloudnorm não estiver disponível, não altera.
+    """
+    try:
+        import pyloudnorm as pyln
+    except ImportError:
+        return
+    try:
+        seg = AudioSegment.from_file(path)
+        rate = seg.frame_rate
+        channels = seg.channels
+        samples = np.array(seg.get_array_of_samples(), dtype=np.float64) / 32768.0
+        if channels == 2:
+            data = samples.reshape(-1, 2)
+        else:
+            data = samples.reshape(-1, 1)
+        meter = pyln.Meter(rate)
+        lufs = meter.integrated_loudness(data)
+        if not np.isfinite(lufs) or lufs < -60:
+            seg = seg.apply_gain(EXTRA_DB)
+            seg.export(path, format="mp3")
+            return
+        normalized = pyln.normalize.loudness(data, lufs, target_lufs)
+        normalized = np.clip(normalized, -1.0, 1.0)
+        if channels == 2:
+            int16 = (normalized.reshape(-1) * 32767).astype(np.int16)
+        else:
+            int16 = (normalized.reshape(-1) * 32767).astype(np.int16)
+        new_seg = AudioSegment(
+            data=int16.tobytes(),
+            sample_width=2,
+            frame_rate=rate,
+            channels=channels,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        new_seg.export(path, format="mp3")
+    except Exception:
+        pass
 
 
 def _normalize_segments(seg: AudioSegment, segment_ms: int = 5000, target_dBFS: float = -3.0) -> AudioSegment:
@@ -111,11 +161,12 @@ def _normalize_segments(seg: AudioSegment, segment_ms: int = 5000, target_dBFS: 
 
 
 def normalize_audio(path: Path, output_path: Path, target_dBFS: float = -1.5) -> None:
-    """Normaliza por segmentos e salva (volume estável, equalizado com música)."""
+    """Normaliza por segmentos e salva (volume estável, equalizado com música). Depois aplica LUFS."""
     seg = AudioSegment.from_file(path)
     seg = _normalize_segments(seg, segment_ms=5000, target_dBFS=target_dBFS)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     seg.export(output_path, format="mp3")
+    normalize_lufs(output_path)
 
 
 VINHETAS_DIR = BASE_DIR / "assets" / "vinhetas"
@@ -161,4 +212,5 @@ def mix_voice_with_bed(
     mixed = _normalize_segments(mixed, segment_ms=8000, target_dBFS=-1.5)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mixed.export(output_path, format="mp3")
+    normalize_lufs(output_path)
     return mixed
