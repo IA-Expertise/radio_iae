@@ -250,13 +250,14 @@ def api_gerar_semana():
 @app.route("/api/gerar-roteiro-louveira", methods=["POST"])
 def api_gerar_roteiro_louveira():
     """
-    Scraping Louveira + Gemini → roteiro completo. Retorna o texto para exibir na admin (e depois gerar áudio).
+    Scraping Louveira + Gemini → 3 roteiros curtos (um por notícia).
+    Retorna lista [{title, script}, ...] para exibir na admin.
     """
     if not _check_admin_secret():
         return jsonify({"ok": False, "error": "Acesso negado."}), 403
     try:
-        script = run_louveira()
-        return jsonify({"ok": True, "script": script})
+        items = run_louveira()
+        return jsonify({"ok": True, "items": items})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -264,34 +265,43 @@ def api_gerar_roteiro_louveira():
 @app.route("/api/gerar-audio-boletim", methods=["POST"])
 def api_gerar_audio_boletim():
     """
-    Recebe o roteiro (body.script), gera áudio ElevenLabs, grava em output/blocks/, adiciona à fila da rádio.
-    Programação fica: boletim → música → música → ...
+    Recebe lista de roteiros (body.scripts), gera áudio para cada um,
+    grava em output/blocks/, adiciona à fila da rádio.
     """
     if not _check_admin_secret():
         return jsonify({"ok": False, "error": "Acesso negado."}), 403
     data = request.get_json(silent=True) or {}
-    script = (data.get("script") or "").strip()
-    if not script:
-        return jsonify({"ok": False, "error": "Roteiro vazio. Gere o roteiro antes ou cole o texto."}), 400
+    scripts = data.get("scripts") or []
+    if not scripts or not any(s.strip() for s in scripts):
+        return jsonify({"ok": False, "error": "Nenhum roteiro para gerar. Gere os roteiros antes."}), 400
     try:
-        closing = _get_next_closing()
-        full_script = script + " [pausa] " + closing
-        voice_run(full_script)
-        if not NEWS_FILE.is_file():
-            return jsonify({"ok": False, "error": "Áudio não foi gerado."}), 500
-        BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
-        name = f"block_{_next_block_id():06d}.mp3"
-        dest = BLOCKS_DIR / name
-        if NEWS_BED_PATH.is_file():
-            mix_voice_with_bed(NEWS_FILE, NEWS_BED_PATH, dest)
-        else:
-            normalize_audio(NEWS_FILE, dest)
-        with _lock:
-            ready_blocks.append(name)
+        blocks_created = []
+        for script in scripts:
+            script = script.strip()
+            if not script:
+                continue
+            closing = _get_next_closing()
+            full_script = script + " [pausa] " + closing
+            voice_run(full_script)
+            if not NEWS_FILE.is_file():
+                continue
+            BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
+            name = f"block_{_next_block_id():06d}.mp3"
+            dest = BLOCKS_DIR / name
+            if NEWS_BED_PATH.is_file():
+                mix_voice_with_bed(NEWS_FILE, NEWS_BED_PATH, dest)
+            else:
+                normalize_audio(NEWS_FILE, dest)
+            with _lock:
+                ready_blocks.append(name)
+            blocks_created.append(name)
+            time.sleep(DELAY_BETWEEN_BLOCKS_SEC)
+        if not blocks_created:
+            return jsonify({"ok": False, "error": "Nenhum áudio foi gerado."}), 500
         return jsonify({
             "ok": True,
-            "message": "Boletim gravado e colocado na programação. Ciclo: boletim → música → música.",
-            "block": name,
+            "message": f"{len(blocks_created)} boletim(ns) gravado(s) e colocado(s) na programação.",
+            "blocks": blocks_created,
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

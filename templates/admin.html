@@ -12,6 +12,8 @@
       --accent-hover: #818cf8;
       --text: #e4e4e7;
       --text-muted: #71717a;
+      --green: #22c55e;
+      --green-hover: #16a34a;
     }
     * { box-sizing: border-box; }
     body {
@@ -30,7 +32,7 @@
       border-radius: 12px;
       padding: 1.5rem 2rem;
       margin-bottom: 1rem;
-      max-width: 640px;
+      max-width: 720px;
       width: 100%;
     }
     .card h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
@@ -48,6 +50,10 @@
     }
     .btn:hover { background: var(--accent-hover); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-green {
+      background: var(--green);
+    }
+    .btn-green:hover { background: var(--green-hover); }
     .btn-sec {
       background: var(--card);
       border: 1px solid var(--text-muted);
@@ -56,9 +62,20 @@
     }
     .btn-sec:hover { border-color: var(--accent); color: var(--accent); }
     .status { font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted); min-height: 1.2em; }
-    textarea {
+    .news-item {
+      border: 1px solid #2a2a30;
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .news-item h3 {
+      font-size: 0.95rem;
+      margin: 0 0 0.5rem 0;
+      color: #93c5fd;
+    }
+    .news-item textarea {
       width: 100%;
-      min-height: 220px;
+      min-height: 140px;
       background: var(--bg);
       border: 1px solid var(--text-muted);
       border-radius: 8px;
@@ -66,29 +83,39 @@
       color: var(--text);
       font-size: 0.9rem;
       resize: vertical;
-      margin-bottom: 0.5rem;
     }
+    .news-item .word-count {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
     a { color: var(--accent); text-decoration: none; margin-top: 0.5rem; display: inline-block; }
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Boletim Louveira (teste)</h1>
-    <p>Scraping do site da prefeitura + roteiro ~2 min. Revise o texto e depois grave o áudio para a rádio.</p>
-    <h2>Roteiro</h2>
-    <textarea id="roteiro" placeholder="Clique em «Gerar roteiro» para preencher. Pode editar antes de gerar o áudio."></textarea>
-    <div>
-      <button id="btn-roteiro" class="btn" type="button">📄 Gerar roteiro</button>
-      <button id="btn-audio" class="btn btn-sec" type="button">🎙️ Gerar áudio e colocar na rádio</button>
+    <h1>Boletim Louveira</h1>
+    <p>Scraping do site da prefeitura: pega as 3 notícias mais recentes e gera um roteiro curto para cada uma. Revise os textos e grave os áudios.</p>
+
+    <div class="btn-row">
+      <button id="btn-roteiro" class="btn" type="button">Gerar roteiros (3 notícias)</button>
     </div>
     <p id="status-louveira" class="status"></p>
+
+    <div id="news-container"></div>
+
+    <div class="btn-row" id="audio-row" style="display:none;">
+      <button id="btn-audio" class="btn btn-green" type="button">Gerar áudios e colocar na rádio</button>
+    </div>
+    <p id="status-audio" class="status"></p>
   </div>
 
   <div class="card">
     <h1>Gerar blocos da semana</h1>
     <p>Dispara os 15 blocos (notícias + dicas). Use uma vez por semana.</p>
-    <button id="btn-gerar" class="btn" type="button">📻 Gerar blocos da semana</button>
+    <button id="btn-gerar" class="btn" type="button">Gerar blocos da semana</button>
     <p id="status" class="status"></p>
     <a href="/">← Voltar para a Rádio</a>
   </div>
@@ -98,8 +125,10 @@
     const statusEl = document.getElementById('status');
     const btnRoteiro = document.getElementById('btn-roteiro');
     const btnAudio = document.getElementById('btn-audio');
-    const roteiroEl = document.getElementById('roteiro');
+    const audioRow = document.getElementById('audio-row');
+    const newsContainer = document.getElementById('news-container');
     const statusLouveira = document.getElementById('status-louveira');
+    const statusAudio = document.getElementById('status-audio');
 
     function getKey() {
       const params = new URLSearchParams(window.location.search);
@@ -110,6 +139,39 @@
       return JSON.stringify({ secret: getKey(), ...extra });
     }
 
+    function countWords(text) {
+      return text.replace(/\[pausa\]/g, ' ').replace(/\.\.\./g, ' ').trim().split(/\s+/).filter(Boolean).length;
+    }
+
+    function renderNewsItems(items) {
+      newsContainer.innerHTML = '';
+      items.forEach((item, i) => {
+        const div = document.createElement('div');
+        div.className = 'news-item';
+
+        const h3 = document.createElement('h3');
+        h3.textContent = (i + 1) + '. ' + (item.title || 'Notícia ' + (i + 1));
+        div.appendChild(h3);
+
+        const ta = document.createElement('textarea');
+        ta.id = 'script-' + i;
+        ta.value = item.script || '';
+        div.appendChild(ta);
+
+        const wc = document.createElement('div');
+        wc.className = 'word-count';
+        wc.textContent = countWords(ta.value) + ' palavras';
+        div.appendChild(wc);
+
+        ta.addEventListener('input', () => {
+          wc.textContent = countWords(ta.value) + ' palavras';
+        });
+
+        newsContainer.appendChild(div);
+      });
+      audioRow.style.display = items.length > 0 ? 'flex' : 'none';
+    }
+
     btnRoteiro.addEventListener('click', async () => {
       const key = getKey();
       if (!key) {
@@ -117,8 +179,10 @@
         return;
       }
       btnRoteiro.disabled = true;
-      statusLouveira.textContent = 'Scraping Louveira e gerando roteiro…';
-      roteiroEl.value = '';
+      statusLouveira.textContent = 'Buscando notícias de Louveira e gerando roteiros…';
+      newsContainer.innerHTML = '';
+      audioRow.style.display = 'none';
+      statusAudio.textContent = '';
       try {
         const res = await fetch('/api/gerar-roteiro-louveira', {
           method: 'POST',
@@ -126,11 +190,11 @@
           body: payload(),
         });
         const data = await res.json();
-        if (res.ok && data.ok && data.script) {
-          roteiroEl.value = data.script;
-          statusLouveira.textContent = 'Roteiro pronto. Revise e clique em «Gerar áudio e colocar na rádio».';
+        if (res.ok && data.ok && data.items) {
+          renderNewsItems(data.items);
+          statusLouveira.textContent = data.items.length + ' roteiro(s) gerado(s). Revise os textos e clique em «Gerar áudios».';
         } else {
-          statusLouveira.textContent = data.error || 'Erro ao gerar roteiro.';
+          statusLouveira.textContent = data.error || 'Erro ao gerar roteiros.';
         }
       } catch (_) {
         statusLouveira.textContent = 'Erro ao chamar a API.';
@@ -140,31 +204,32 @@
 
     btnAudio.addEventListener('click', async () => {
       const key = getKey();
-      const script = roteiroEl.value.trim();
       if (!key) {
-        statusLouveira.textContent = 'Chave não encontrada.';
+        statusAudio.textContent = 'Chave não encontrada.';
         return;
       }
-      if (!script) {
-        statusLouveira.textContent = 'Gere o roteiro antes ou cole o texto no campo.';
+      const textareas = newsContainer.querySelectorAll('textarea');
+      const scripts = Array.from(textareas).map(ta => ta.value.trim()).filter(Boolean);
+      if (scripts.length === 0) {
+        statusAudio.textContent = 'Gere os roteiros antes ou preencha os campos.';
         return;
       }
       btnAudio.disabled = true;
-      statusLouveira.textContent = 'Gravando áudio e colocando na programação…';
+      statusAudio.textContent = 'Gerando ' + scripts.length + ' áudio(s)… Isso leva ~30s por notícia.';
       try {
         const res = await fetch('/api/gerar-audio-boletim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: payload({ script }),
+          body: payload({ scripts }),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          statusLouveira.textContent = data.message || 'Boletim na rádio. Ciclo: boletim → música → música.';
+          statusAudio.textContent = data.message || 'Boletins na rádio!';
         } else {
-          statusLouveira.textContent = data.error || 'Erro.';
+          statusAudio.textContent = data.error || 'Erro.';
         }
       } catch (_) {
-        statusLouveira.textContent = 'Erro ao chamar a API.';
+        statusAudio.textContent = 'Erro ao chamar a API.';
       }
       btnAudio.disabled = false;
     });
