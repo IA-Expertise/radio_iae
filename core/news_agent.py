@@ -153,35 +153,46 @@ def build_script_prompt(news: list[dict]) -> str:
     return "\n".join(parts)
 
 
+MIN_WORDS = 280
+MAX_RETRIES = 2
+
+
+def _count_words(text: str) -> int:
+    clean = text.replace("[pausa]", " ").replace("...", " ")
+    return len(clean.split())
+
+
 def generate_radio_script(news: list[dict], long_form: bool = False) -> str:
     """
     Usa o Gemini para roteiro de rádio.
     long_form=True: exige ~2 min (320–380 palavras), para boletim Louveira.
+    Faz retry automático se o texto vier com menos de MIN_WORDS palavras.
     """
     api_key = _get_api_key()
     genai.configure(api_key=api_key)
 
     if long_form:
         system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública.
-Regras OBRIGATÓRIAS:
-- O roteiro DEVE ter entre 320 e 380 palavras (cerca de 2 minutos de leitura). NUNCA entregue um roteiro curto ou resumido.
-- Desenvolva CADA uma das 3 notícias: abertura da matéria, contexto, detalhes relevantes e desfecho. Não junte tudo em um parágrafo.
-- Use a marcação [pausa] entre blocos (após cada notícia e em transições).
-- Base apenas nas notícias fornecidas; não invente dados.
-- Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
-- Saída: só o texto do roteiro, sem título. Comece com abertura breve (ex.: "Bom dia, ouvintes.", "Notícias do dia.")."""
-        user_head = "Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de 2 MINUTOS (entre 320 e 380 palavras). NÃO seja curto: desenvolva cada notícia com contexto e detalhes. Tom profissional, utilidade pública. Use [pausa] entre blocos.\n\n"
-        max_tokens = 1600
+Regras OBRIGATÓRIAS (siga TODAS sem exceção):
+1. MÍNIMO ABSOLUTO: 350 palavras. O roteiro DEVE ter entre 350 e 400 palavras. Roteiros com menos de 300 palavras serão REJEITADOS.
+2. Desenvolva CADA uma das notícias em parágrafos separados: abertura, contexto, detalhes relevantes e desfecho. NUNCA resuma uma notícia em uma ou duas frases.
+3. Use a marcação [pausa] entre blocos (após cada notícia e em transições).
+4. Base apenas nas notícias fornecidas; não invente dados.
+5. Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
+6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras, sem comentários. Comece direto com a abertura (ex.: "Bom dia, ouvintes.")."""
+        user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 350 palavras (cerca de 2 minutos de leitura em voz alta). Desenvolva cada notícia com abertura, contexto, detalhes e desfecho em parágrafos separados. NÃO resuma. NÃO seja breve. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+        max_tokens = 2000
     else:
         system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
-Regras para o roteiro:
-- Use a marcação [pausa] entre blocos para respiração e ritmo.
-- Duração: aproximadamente 2 minutos de leitura (320 a 380 palavras). Desenvolva cada notícia com contexto e desfecho.
-- Base apenas nas notícias fornecidas; não invente dados.
-- Otimizado para voz: evite siglas soletradas; evite números longos; preferir "mil" a "1.000".
-- Saída: só o texto do roteiro, sem título. Comece com abertura breve (ex.: "Bom dia, ouvintes.", "Notícias do dia.")."""
-        user_head = f"Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de aproximadamente 2 minutos (320 a 380 palavras). Tom profissional, utilidade pública. Desenvolva cada notícia. Use [pausa] entre blocos.\n\n"
-        max_tokens = 1200
+Regras OBRIGATÓRIAS (siga TODAS sem exceção):
+1. MÍNIMO ABSOLUTO: 320 palavras. O roteiro DEVE ter entre 320 e 380 palavras. Roteiros curtos serão REJEITADOS.
+2. Desenvolva CADA notícia em parágrafos separados: abertura, contexto, detalhes e desfecho. NUNCA resuma uma notícia em uma ou duas frases.
+3. Use a marcação [pausa] entre blocos para respiração e ritmo.
+4. Base apenas nas notícias fornecidas; não invente dados.
+5. Otimizado para voz: evite siglas soletradas; evite números longos; preferir "mil" a "1.000".
+6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras. Comece direto com a abertura (ex.: "Bom dia, ouvintes.")."""
+        user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 320 palavras (cerca de 2 minutos de leitura). Desenvolva cada notícia com contexto e detalhes em parágrafos separados. NÃO resuma. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+        max_tokens = 2000
 
     model = genai.GenerativeModel(
         "gemini-2.5-flash",
@@ -189,20 +200,46 @@ Regras para o roteiro:
     )
 
     news_text = build_script_prompt(news)
-    user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro."
+    user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro. Lembre-se: mínimo 320 palavras, desenvolva cada notícia."
 
-    response = model.generate_content(
-        user_prompt,
-        generation_config={
-            "temperature": 0.6,
-            "max_output_tokens": max_tokens,
-        },
-    )
+    best_script = ""
+    best_words = 0
 
-    if not response.text:
+    for attempt in range(MAX_RETRIES + 1):
+        temp = 0.6 + (attempt * 0.15)
+        response = model.generate_content(
+            user_prompt,
+            generation_config={
+                "temperature": min(temp, 1.0),
+                "max_output_tokens": max_tokens,
+            },
+        )
+
+        if not response.text:
+            continue
+
+        script = response.text.strip()
+        wc = _count_words(script)
+
+        if wc > best_words:
+            best_script = script
+            best_words = wc
+
+        if wc >= MIN_WORDS:
+            return script
+
+        user_prompt = (
+            f"O roteiro anterior ficou com apenas {wc} palavras. É MUITO CURTO. "
+            f"Reescreva o roteiro com NO MÍNIMO 350 palavras. Desenvolva CADA notícia "
+            f"com mais contexto, detalhes e explicações. Cada notícia deve ter pelo menos "
+            f"3 parágrafos. Use [pausa] entre blocos.\n\n" + news_text +
+            "\n\nGere somente o texto do roteiro completo. MÍNIMO 350 palavras."
+        )
+
+    if not best_script:
         raise RuntimeError("Gemini não retornou texto para o roteiro.")
 
-    return response.text.strip()
+    return best_script
 
 
 def run() -> str:
