@@ -153,8 +153,7 @@ def build_script_prompt(news: list[dict]) -> str:
     return "\n".join(parts)
 
 
-MIN_WORDS_COMBINED = 280
-MIN_WORDS_SINGLE = 80
+MIN_WORDS = 280
 MAX_RETRIES = 2
 
 
@@ -163,15 +162,28 @@ def _count_words(text: str) -> int:
     return len(clean.split())
 
 
-def generate_radio_script(news: list[dict]) -> str:
+def generate_radio_script(news: list[dict], long_form: bool = False) -> str:
     """
-    Usa o Gemini para roteiro de rádio combinado (várias notícias em um texto).
-    Usado para blocos semanais (RSS Google News).
+    Usa o Gemini para roteiro de rádio.
+    long_form=True: exige ~2 min (320–380 palavras), para boletim Louveira.
+    Faz retry automático se o texto vier com menos de MIN_WORDS palavras.
     """
     api_key = _get_api_key()
     genai.configure(api_key=api_key)
 
-    system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
+    if long_form:
+        system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública.
+Regras OBRIGATÓRIAS (siga TODAS sem exceção):
+1. MÍNIMO ABSOLUTO: 350 palavras. O roteiro DEVE ter entre 350 e 400 palavras. Roteiros com menos de 300 palavras serão REJEITADOS.
+2. Desenvolva CADA uma das notícias em parágrafos separados: abertura, contexto, detalhes relevantes e desfecho. NUNCA resuma uma notícia em uma ou duas frases.
+3. Use a marcação [pausa] entre blocos (após cada notícia e em transições).
+4. Base apenas nas notícias fornecidas; não invente dados.
+5. Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
+6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras, sem comentários. Comece direto com a abertura (ex.: "Bom dia, ouvintes.")."""
+        user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 350 palavras (cerca de 2 minutos de leitura em voz alta). Desenvolva cada notícia com abertura, contexto, detalhes e desfecho em parágrafos separados. NÃO resuma. NÃO seja breve. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+        max_tokens = 2000
+    else:
+        system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
 Regras OBRIGATÓRIAS (siga TODAS sem exceção):
 1. MÍNIMO ABSOLUTO: 320 palavras. O roteiro DEVE ter entre 320 e 380 palavras. Roteiros curtos serão REJEITADOS.
 2. Desenvolva CADA notícia em parágrafos separados: abertura, contexto, detalhes e desfecho. NUNCA resuma uma notícia em uma ou duas frases.
@@ -179,7 +191,8 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
 4. Base apenas nas notícias fornecidas; não invente dados.
 5. Otimizado para voz: evite siglas soletradas; evite números longos; preferir "mil" a "1.000".
 6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras. Comece direto com a abertura (ex.: "Bom dia, ouvintes.")."""
-    user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 320 palavras (cerca de 2 minutos de leitura). Desenvolva cada notícia com contexto e detalhes em parágrafos separados. NÃO resuma. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+        user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 320 palavras (cerca de 2 minutos de leitura). Desenvolva cada notícia com contexto e detalhes em parágrafos separados. NÃO resuma. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+        max_tokens = 2000
 
     model = genai.GenerativeModel(
         "gemini-2.5-flash",
@@ -198,7 +211,7 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
             user_prompt,
             generation_config={
                 "temperature": min(temp, 1.0),
-                "max_output_tokens": 2000,
+                "max_output_tokens": max_tokens,
             },
         )
 
@@ -212,7 +225,7 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
             best_script = script
             best_words = wc
 
-        if wc >= MIN_WORDS_COMBINED:
+        if wc >= MIN_WORDS:
             return script
 
         user_prompt = (
@@ -229,69 +242,6 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
     return best_script
 
 
-def generate_single_news_script(news_item: dict) -> str:
-    """
-    Gera roteiro curto (~30-50 segundos) para UMA notícia individual.
-    Usado para o boletim Louveira (3 notícias → 3 roteiros separados → 3 áudios).
-    """
-    api_key = _get_api_key()
-    genai.configure(api_key=api_key)
-
-    system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública.
-Regras OBRIGATÓRIAS:
-1. O roteiro deve ter entre 100 e 150 palavras (cerca de 30 a 50 segundos de leitura).
-2. Desenvolva a notícia com: abertura, contexto/detalhes e desfecho.
-3. Use a marcação [pausa] para respiração e ritmo (1 ou 2 vezes no texto).
-4. Base apenas na notícia fornecida; não invente dados.
-5. Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
-6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras. Comece direto (ex.: "Atenção, ouvintes.", "Notícia importante.")."""
-
-    user_prompt = (
-        f"Escreva um roteiro de rádio curto (100 a 150 palavras, ~40 segundos) sobre esta notícia. "
-        f"Desenvolva com abertura, contexto e desfecho. Use [pausa] para ritmo.\n\n"
-        f"**Notícia:** {news_item['title']}\n"
-    )
-    if news_item.get("summary"):
-        user_prompt += f"Detalhes: {news_item['summary'][:3000]}\n"
-    user_prompt += "\nGere somente o texto do roteiro."
-
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction=system_instruction,
-    )
-
-    best_script = ""
-    best_words = 0
-
-    for attempt in range(MAX_RETRIES + 1):
-        temp = 0.6 + (attempt * 0.15)
-        response = model.generate_content(
-            user_prompt,
-            generation_config={
-                "temperature": min(temp, 1.0),
-                "max_output_tokens": 800,
-            },
-        )
-
-        if not response.text:
-            continue
-
-        script = response.text.strip()
-        wc = _count_words(script)
-
-        if wc > best_words:
-            best_script = script
-            best_words = wc
-
-        if wc >= MIN_WORDS_SINGLE:
-            return script
-
-    if not best_script:
-        raise RuntimeError(f"Gemini não retornou texto para a notícia: {news_item.get('title', '?')}")
-
-    return best_script
-
-
 def run() -> str:
     """
     Fluxo principal (RSS Google News): busca notícias, gera roteiro e retorna o texto.
@@ -302,20 +252,15 @@ def run() -> str:
     return generate_radio_script(news)
 
 
-def run_louveira() -> list[dict]:
+def run_louveira() -> str:
     """
-    Fluxo Louveira: scraping do site da prefeitura, 3 notícias mais recentes.
-    Para CADA notícia, gera um roteiro curto individual (~100-150 palavras).
-    Retorna lista de dicts: [{"title": ..., "script": ...}, ...]
+    Fluxo Louveira: scraping do site da prefeitura, 3 notícias mais recentes,
+    gera roteiro ~2 min (long_form), persona locutor profissional. Para uso na admin.
     """
     news = fetch_news_louveira()
     if not news:
         raise RuntimeError("Nenhuma notícia encontrada no site de Louveira.")
-    results = []
-    for item in news:
-        script = generate_single_news_script(item)
-        results.append({"title": item["title"], "script": script})
-    return results
+    return generate_radio_script(news, long_form=True)
 
 
 if __name__ == "__main__":
