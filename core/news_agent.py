@@ -67,9 +67,6 @@ def fetch_news_louveira() -> list[dict]:
             continue
         if full_url in seen:
             continue
-        # Evita duplicata por URL
-        if full_url in seen:
-            continue
         # Título: texto do link ou do h2 dentro
         title = (a.get_text(strip=True) or "").strip()
         if not title or len(title) < 15:
@@ -156,21 +153,35 @@ def build_script_prompt(news: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def generate_radio_script(news: list[dict]) -> str:
+def generate_radio_script(news: list[dict], long_form: bool = False) -> str:
     """
-    Usa o Gemini para roteiro de rádio ~2 min (~350 palavras).
-    Persona: locutor brasileiro experiente, tom profissional, utilidade pública, [pausa].
+    Usa o Gemini para roteiro de rádio.
+    long_form=True: exige ~2 min (320–380 palavras), para boletim Louveira.
     """
     api_key = _get_api_key()
     genai.configure(api_key=api_key)
 
-    system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
+    if long_form:
+        system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública.
+Regras OBRIGATÓRIAS:
+- O roteiro DEVE ter entre 320 e 380 palavras (cerca de 2 minutos de leitura). NUNCA entregue um roteiro curto ou resumido.
+- Desenvolva CADA uma das 3 notícias: abertura da matéria, contexto, detalhes relevantes e desfecho. Não junte tudo em um parágrafo.
+- Use a marcação [pausa] entre blocos (após cada notícia e em transições).
+- Base apenas nas notícias fornecidas; não invente dados.
+- Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
+- Saída: só o texto do roteiro, sem título. Comece com abertura breve (ex.: "Bom dia, ouvintes.", "Notícias do dia.")."""
+        user_head = "Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de 2 MINUTOS (entre 320 e 380 palavras). NÃO seja curto: desenvolva cada notícia com contexto e detalhes. Tom profissional, utilidade pública. Use [pausa] entre blocos.\n\n"
+        max_tokens = 1600
+    else:
+        system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
 Regras para o roteiro:
 - Use a marcação [pausa] entre blocos para respiração e ritmo.
 - Duração: aproximadamente 2 minutos de leitura (320 a 380 palavras). Desenvolva cada notícia com contexto e desfecho.
 - Base apenas nas notícias fornecidas; não invente dados.
 - Otimizado para voz: evite siglas soletradas; evite números longos; preferir "mil" a "1.000".
 - Saída: só o texto do roteiro, sem título. Comece com abertura breve (ex.: "Bom dia, ouvintes.", "Notícias do dia.")."""
+        user_head = f"Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de aproximadamente 2 minutos (320 a 380 palavras). Tom profissional, utilidade pública. Desenvolva cada notícia. Use [pausa] entre blocos.\n\n"
+        max_tokens = 1200
 
     model = genai.GenerativeModel(
         "gemini-2.5-flash",
@@ -178,17 +189,13 @@ Regras para o roteiro:
     )
 
     news_text = build_script_prompt(news)
-    user_prompt = f"""Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de aproximadamente 2 minutos (320 a 380 palavras). Tom profissional, utilidade pública. Desenvolva cada notícia. Use [pausa] entre blocos.
-
-{news_text}
-
-Gere somente o texto do roteiro."""
+    user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro."
 
     response = model.generate_content(
         user_prompt,
         generation_config={
             "temperature": 0.6,
-            "max_output_tokens": 1200,
+            "max_output_tokens": max_tokens,
         },
     )
 
@@ -211,12 +218,12 @@ def run() -> str:
 def run_louveira() -> str:
     """
     Fluxo Louveira: scraping do site da prefeitura, 3 notícias mais recentes,
-    gera roteiro ~2 min, persona locutor profissional. Para uso na admin (ver roteiro e gerar áudio).
+    gera roteiro ~2 min (long_form), persona locutor profissional. Para uso na admin.
     """
     news = fetch_news_louveira()
     if not news:
         raise RuntimeError("Nenhuma notícia encontrada no site de Louveira.")
-    return generate_radio_script(news)
+    return generate_radio_script(news, long_form=True)
 
 
 if __name__ == "__main__":
