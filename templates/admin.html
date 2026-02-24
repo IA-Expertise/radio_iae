@@ -71,6 +71,8 @@
     .opt { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; }
     .opt input { cursor: pointer; }
     .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .player-wrap { margin-top: 0.75rem; }
+    .player-audio { width: 100%; max-width: 100%; height: 40px; margin-bottom: 0.25rem; }
     a { color: var(--accent); text-decoration: none; margin-top: 0.5rem; display: inline-block; }
     a:hover { text-decoration: underline; }
   </style>
@@ -88,6 +90,12 @@
     <label class="opt"><input type="checkbox" id="substituir-fila" /> Substituir fila da rádio por este boletim (só toca este até gerar mais)</label>
     <p id="status-louveira" class="status"></p>
     <p class="hint">Adiciona 1 boletim apenas. Não dispara os 15 blocos da semana.</p>
+
+    <h2 id="titulo-audio" style="display: none;">Ouça o último boletim</h2>
+    <div id="player-wrap" style="display: none;" class="player-wrap">
+      <audio id="player-boletim" controls preload="metadata" class="player-audio"></audio>
+      <p class="hint"><a id="link-download" href="#" download>Baixar MP3</a></p>
+    </div>
   </div>
 
   <div class="card">
@@ -165,7 +173,15 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          statusLouveira.textContent = data.message || 'Boletim na rádio. Ciclo: boletim → música → música.';
+          statusLouveira.textContent = data.message || 'Boletim na rádio.';
+          if (data.block) {
+            const url = '/audio/block/' + encodeURIComponent(data.block);
+            document.getElementById('player-boletim').src = url;
+            document.getElementById('link-download').href = url;
+            document.getElementById('link-download').download = data.block;
+            document.getElementById('titulo-audio').style.display = 'block';
+            document.getElementById('player-wrap').style.display = 'block';
+          }
         } else {
           statusLouveira.textContent = data.error || 'Erro.';
         }
