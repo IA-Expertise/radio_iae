@@ -20,7 +20,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 import google.generativeai as genai
 
 from core.mixer import get_next_track, mix_voice_with_bed, normalize_audio
-from core.news_agent import run as news_run
+from core.news_agent import run as news_run, run_louveira
 from core.voice_agent import run as voice_run
 
 app = Flask(__name__)
@@ -245,6 +245,56 @@ def api_gerar_semana():
         "ok": True,
         "message": "Geração da semana iniciada em background. Em alguns minutos os blocos estarão disponíveis. Atualize o status.",
     })
+
+
+@app.route("/api/gerar-roteiro-louveira", methods=["POST"])
+def api_gerar_roteiro_louveira():
+    """
+    Scraping Louveira + Gemini → roteiro completo. Retorna o texto para exibir na admin (e depois gerar áudio).
+    """
+    if not _check_admin_secret():
+        return jsonify({"ok": False, "error": "Acesso negado."}), 403
+    try:
+        script = run_louveira()
+        return jsonify({"ok": True, "script": script})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/gerar-audio-boletim", methods=["POST"])
+def api_gerar_audio_boletim():
+    """
+    Recebe o roteiro (body.script), gera áudio ElevenLabs, grava em output/blocks/, adiciona à fila da rádio.
+    Programação fica: boletim → música → música → ...
+    """
+    if not _check_admin_secret():
+        return jsonify({"ok": False, "error": "Acesso negado."}), 403
+    data = request.get_json(silent=True) or {}
+    script = (data.get("script") or "").strip()
+    if not script:
+        return jsonify({"ok": False, "error": "Roteiro vazio. Gere o roteiro antes ou cole o texto."}), 400
+    try:
+        closing = _get_next_closing()
+        full_script = script + " [pausa] " + closing
+        voice_run(full_script)
+        if not NEWS_FILE.is_file():
+            return jsonify({"ok": False, "error": "Áudio não foi gerado."}), 500
+        BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
+        name = f"block_{_next_block_id():06d}.mp3"
+        dest = BLOCKS_DIR / name
+        if NEWS_BED_PATH.is_file():
+            mix_voice_with_bed(NEWS_FILE, NEWS_BED_PATH, dest)
+        else:
+            normalize_audio(NEWS_FILE, dest)
+        with _lock:
+            ready_blocks.append(name)
+        return jsonify({
+            "ok": True,
+            "message": "Boletim gravado e colocado na programação. Ciclo: boletim → música → música.",
+            "block": name,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ---------- Rotas da programação contínua ----------

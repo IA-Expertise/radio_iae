@@ -24,16 +24,18 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
     }
     .card {
       background: var(--card);
       border-radius: 12px;
       padding: 1.5rem 2rem;
-      text-align: center;
+      margin-bottom: 1rem;
+      max-width: 640px;
+      width: 100%;
     }
-    h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
-    p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+    .card h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .card h2 { font-size: 1rem; color: var(--text-muted); margin: 1rem 0 0.5rem 0; }
+    .card p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem; }
     .btn {
       background: var(--accent);
       color: white;
@@ -46,42 +48,140 @@
     }
     .btn:hover { background: var(--accent-hover); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .status { font-size: 0.85rem; margin-top: 1rem; color: var(--text-muted); min-height: 1.2em; }
-    a { color: var(--accent); text-decoration: none; margin-top: 1rem; display: inline-block; }
+    .btn-sec {
+      background: var(--card);
+      border: 1px solid var(--text-muted);
+      color: var(--text);
+      margin-left: 0.5rem;
+    }
+    .btn-sec:hover { border-color: var(--accent); color: var(--accent); }
+    .status { font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted); min-height: 1.2em; }
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      background: var(--bg);
+      border: 1px solid var(--text-muted);
+      border-radius: 8px;
+      padding: 0.75rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      resize: vertical;
+      margin-bottom: 0.5rem;
+    }
+    a { color: var(--accent); text-decoration: none; margin-top: 0.5rem; display: inline-block; }
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="card">
+    <h1>Boletim Louveira (teste)</h1>
+    <p>Scraping do site da prefeitura + roteiro ~2 min. Revise o texto e depois grave o áudio para a rádio.</p>
+    <h2>Roteiro</h2>
+    <textarea id="roteiro" placeholder="Clique em «Gerar roteiro» para preencher. Pode editar antes de gerar o áudio."></textarea>
+    <div>
+      <button id="btn-roteiro" class="btn" type="button">📄 Gerar roteiro</button>
+      <button id="btn-audio" class="btn btn-sec" type="button">🎙️ Gerar áudio e colocar na rádio</button>
+    </div>
+    <p id="status-louveira" class="status"></p>
+  </div>
+
+  <div class="card">
     <h1>Gerar blocos da semana</h1>
-    <p>Dispara a geração dos 15 blocos (notícias + dicas). Use uma vez por semana. Só você tem este link.</p>
+    <p>Dispara os 15 blocos (notícias + dicas). Use uma vez por semana.</p>
     <button id="btn-gerar" class="btn" type="button">📻 Gerar blocos da semana</button>
     <p id="status" class="status"></p>
     <a href="/">← Voltar para a Rádio</a>
   </div>
 
   <script>
-    const btn = document.getElementById('btn-gerar');
+    const btnGerar = document.getElementById('btn-gerar');
     const statusEl = document.getElementById('status');
+    const btnRoteiro = document.getElementById('btn-roteiro');
+    const btnAudio = document.getElementById('btn-audio');
+    const roteiroEl = document.getElementById('roteiro');
+    const statusLouveira = document.getElementById('status-louveira');
 
     function getKey() {
       const params = new URLSearchParams(window.location.search);
       return params.get('key') || '';
     }
 
-    btn.addEventListener('click', async () => {
+    function payload(extra) {
+      return JSON.stringify({ secret: getKey(), ...extra });
+    }
+
+    btnRoteiro.addEventListener('click', async () => {
+      const key = getKey();
+      if (!key) {
+        statusLouveira.textContent = 'Chave não encontrada. Use o link que você salvou nos favoritos.';
+        return;
+      }
+      btnRoteiro.disabled = true;
+      statusLouveira.textContent = 'Scraping Louveira e gerando roteiro…';
+      roteiroEl.value = '';
+      try {
+        const res = await fetch('/api/gerar-roteiro-louveira', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload(),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok && data.script) {
+          roteiroEl.value = data.script;
+          statusLouveira.textContent = 'Roteiro pronto. Revise e clique em «Gerar áudio e colocar na rádio».';
+        } else {
+          statusLouveira.textContent = data.error || 'Erro ao gerar roteiro.';
+        }
+      } catch (_) {
+        statusLouveira.textContent = 'Erro ao chamar a API.';
+      }
+      btnRoteiro.disabled = false;
+    });
+
+    btnAudio.addEventListener('click', async () => {
+      const key = getKey();
+      const script = roteiroEl.value.trim();
+      if (!key) {
+        statusLouveira.textContent = 'Chave não encontrada.';
+        return;
+      }
+      if (!script) {
+        statusLouveira.textContent = 'Gere o roteiro antes ou cole o texto no campo.';
+        return;
+      }
+      btnAudio.disabled = true;
+      statusLouveira.textContent = 'Gravando áudio e colocando na programação…';
+      try {
+        const res = await fetch('/api/gerar-audio-boletim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload({ script }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          statusLouveira.textContent = data.message || 'Boletim na rádio. Ciclo: boletim → música → música.';
+        } else {
+          statusLouveira.textContent = data.error || 'Erro.';
+        }
+      } catch (_) {
+        statusLouveira.textContent = 'Erro ao chamar a API.';
+      }
+      btnAudio.disabled = false;
+    });
+
+    btnGerar.addEventListener('click', async () => {
       const key = getKey();
       if (!key) {
         statusEl.textContent = 'Chave não encontrada. Use o link que você salvou nos favoritos.';
         return;
       }
-      btn.disabled = true;
+      btnGerar.disabled = true;
       statusEl.textContent = 'Iniciando geração…';
       try {
         const res = await fetch('/api/gerar-semana', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ secret: key }),
+          body: payload(),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
@@ -92,7 +192,7 @@
       } catch (_) {
         statusEl.textContent = 'Erro ao chamar a API.';
       }
-      btn.disabled = false;
+      btnGerar.disabled = false;
     });
   </script>
 </body>

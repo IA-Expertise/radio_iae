@@ -1,23 +1,34 @@
 """
 News Agent - Rádio IA
-Busca notícias de IA no RSS do Google News e gera roteiro de rádio via Gemini.
+Busca notícias no RSS do Google News (URL configurável em GOOGLE_NEWS_RSS) e gera roteiro de rádio via Gemini.
+Scraper Louveira: notícias locais do site da prefeitura para roteiro ~2 min, persona profissional.
 """
 
 import os
 import re
+from urllib.parse import urljoin
+
 from dotenv import load_dotenv
 import feedparser
 import google.generativeai as genai
+import requests
+from bs4 import BeautifulSoup
 
-# URL do RSS Google News – busca "dicas de IA" (pt-BR)
-# Equivalente a: https://news.google.com/search?q=dicas+de+IA&hl=pt-BR&gl=BR&ceid=BR:pt-419
-GOOGLE_NEWS_IA_RSS = (
-    "https://news.google.com/rss/search?q=dicas+de+IA"
+# URL do RSS Google News (pt-BR). Altere 'q=' para testar outras fontes:
+# Ex.: "dicas+de+IA" | "Louveira+SP" | "notícias+Louveira"
+GOOGLE_NEWS_RSS = (
+    "https://news.google.com/rss/search?q=Louveira+SP"
     "&hl=pt-BR&gl=BR&ceid=BR:pt-419"
 )
 
 # Quantidade de notícias para o roteiro
 TOP_N = 3
+
+# Scraper Louveira (prefeitura)
+LOUVEIRA_BASE = "https://www.louveira.sp.gov.br"
+LOUVEIRA_NOTICIAS_URL = "https://www.louveira.sp.gov.br/noticias"
+LOUVEIRA_TIMEOUT = 15
+LOUVEIRA_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; RadioIA/1.0)"}
 
 
 def _get_api_key() -> str:
@@ -31,12 +42,94 @@ def _get_api_key() -> str:
     return key
 
 
+def fetch_news_louveira() -> list[dict]:
+    """
+    Scraping do site da Prefeitura de Louveira: pega as 3 notícias mais recentes da listagem,
+    entra em cada link e extrai título e texto completo. Retorna lista com 'title' e 'summary' (corpo).
+    """
+    out: list[dict] = []
+    try:
+        r = requests.get(LOUVEIRA_NOTICIAS_URL, timeout=LOUVEIRA_TIMEOUT, headers=LOUVEIRA_HEADERS)
+        r.raise_for_status()
+    except Exception as e:
+        raise RuntimeError(f"Erro ao acessar página de notícias de Louveira: {e}") from e
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    # Links que parecem ser de matéria: /noticias/... com slug longo (não paginação como /busca/2)
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        href = (a.get("href") or "").strip()
+        if not href or not href.startswith("/noticias/"):
+            continue
+        full_url = urljoin(LOUVEIRA_BASE, href)
+        # Ignora paginação e links genéricos
+        if "/busca/" in href or href.rstrip("/") == "/noticias":
+            continue
+        if full_url in seen:
+            continue
+        # Evita duplicata por URL
+        if full_url in seen:
+            continue
+        # Título: texto do link ou do h2 dentro
+        title = (a.get_text(strip=True) or "").strip()
+        if not title or len(title) < 15:
+            continue
+        seen.add(full_url)
+        out.append({"title": title[:200], "url": full_url})
+        if len(out) >= TOP_N:
+            break
+
+    if len(out) < TOP_N:
+        # Fallback: pega h2 da página (listagem sem links individuais claros)
+        for h2 in soup.find_all(["h2", "h3"])[:TOP_N]:
+            t = h2.get_text(strip=True)
+            if t and len(t) > 10 and len(out) < TOP_N:
+                link = h2.find_parent("a") if h2.find_parent("a") else None
+                url = urljoin(LOUVEIRA_BASE, link["href"]) if link and link.get("href") else None
+                if url and url not in seen:
+                    seen.add(url)
+                    out.append({"title": t[:200], "url": url})
+
+    # Entrar em cada matéria e pegar o texto completo
+    for i, item in enumerate(out):
+        url = item.get("url")
+        if not url:
+            item["summary"] = ""
+            continue
+        try:
+            r2 = requests.get(url, timeout=LOUVEIRA_TIMEOUT, headers=LOUVEIRA_HEADERS)
+            r2.raise_for_status()
+        except Exception:
+            item["summary"] = ""
+            continue
+        soup2 = BeautifulSoup(r2.text, "html.parser")
+        # Título da matéria (pode atualizar)
+        h1 = soup2.find("h1")
+        if h1:
+            item["title"] = h1.get_text(strip=True)[:200]
+        # Corpo: prioriza article, .content, .conteudo, main, .noticia
+        body_el = (
+            soup2.find("article")
+            or soup2.find(class_=re.compile(r"content|conteudo|noticia|corpo|texto|post-body", re.I))
+            or soup2.find("main")
+        )
+        if body_el:
+            text = body_el.get_text(separator=" ", strip=True)
+        else:
+            # Fallback: todo o texto de parágrafos
+            text = " ".join(p.get_text(strip=True) for p in soup2.find_all("p")[:20])
+        text = re.sub(r"\s+", " ", text).strip()[:8000]
+        item["summary"] = text or item.get("title", "")
+
+    return out
+
+
 def fetch_news() -> list[dict]:
     """
-    Busca as notícias de IA no RSS do Google News.
+    Busca as notícias no RSS do Google News (GOOGLE_NEWS_RSS).
     Retorna lista de entradas com 'title' e 'summary' (ou 'description').
     """
-    feed = feedparser.parse(GOOGLE_NEWS_IA_RSS)
+    feed = feedparser.parse(GOOGLE_NEWS_RSS)
     entries = []
     for entry in feed.entries[:TOP_N]:
         title = entry.get("title", "").strip()
@@ -65,21 +158,19 @@ def build_script_prompt(news: list[dict]) -> str:
 
 def generate_radio_script(news: list[dict]) -> str:
     """
-    Usa o Gemini para transformar as notícias em roteiro de rádio de 1 minuto.
-    Persona: jornalista de rádio tech brasileiro, tom dinâmico, frases curtas,
-    marcações [pausa] e texto otimizado para leitura na ElevenLabs.
+    Usa o Gemini para roteiro de rádio ~2 min (~350 palavras).
+    Persona: locutor brasileiro experiente, tom profissional, utilidade pública, [pausa].
     """
     api_key = _get_api_key()
     genai.configure(api_key=api_key)
 
-    system_instruction = """Você é a locutora da Rádio IAE News: jovem, descolada e antenada em tech. Tom informal mas confiável, como uma amiga que entende do assunto.
+    system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
 Regras para o roteiro:
-- Linguagem jovem: pode usar expressões como "galera", "olha só", "fechou?", "bombando", "tá ligado?" com moderação. Frases curtas e diretas.
 - Use a marcação [pausa] entre blocos para respiração e ritmo.
-- Duração: aproximadamente 1 minuto de leitura (200 a 250 palavras). NOTÍCIA COMPLETA: desenvolva cada ponto, contexto e desfecho.
-- Base apenas nas 3 notícias fornecidas; não invente dados.
-- Otimizado para voz (ElevenLabs): evite siglas soletradas; evite números longos.
-- Saída: só o texto do roteiro, sem título. Comece direto com a abertura (ex.: "Oi, pessoal!", "E aí, galera!")."""
+- Duração: aproximadamente 2 minutos de leitura (320 a 380 palavras). Desenvolva cada notícia com contexto e desfecho.
+- Base apenas nas notícias fornecidas; não invente dados.
+- Otimizado para voz: evite siglas soletradas; evite números longos; preferir "mil" a "1.000".
+- Saída: só o texto do roteiro, sem título. Comece com abertura breve (ex.: "Bom dia, ouvintes.", "Notícias do dia.")."""
 
     model = genai.GenerativeModel(
         "gemini-2.5-flash",
@@ -87,7 +178,7 @@ Regras para o roteiro:
     )
 
     news_text = build_script_prompt(news)
-    user_prompt = f"""Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO, tom jovem e descolado, até 1 min de leitura. Desenvolva cada notícia. Use [pausa] onde fizer sentido.
+    user_prompt = f"""Com base nas notícias abaixo, escreva um roteiro de rádio COMPLETO de aproximadamente 2 minutos (320 a 380 palavras). Tom profissional, utilidade pública. Desenvolva cada notícia. Use [pausa] entre blocos.
 
 {news_text}
 
@@ -96,8 +187,8 @@ Gere somente o texto do roteiro."""
     response = model.generate_content(
         user_prompt,
         generation_config={
-            "temperature": 0.7,
-            "max_output_tokens": 1500,
+            "temperature": 0.6,
+            "max_output_tokens": 1200,
         },
     )
 
@@ -109,11 +200,22 @@ Gere somente o texto do roteiro."""
 
 def run() -> str:
     """
-    Fluxo principal: busca notícias, gera roteiro e retorna o texto.
+    Fluxo principal (RSS Google News): busca notícias, gera roteiro e retorna o texto.
     """
     news = fetch_news()
     if not news:
         raise RuntimeError("Nenhuma notícia encontrada no RSS.")
+    return generate_radio_script(news)
+
+
+def run_louveira() -> str:
+    """
+    Fluxo Louveira: scraping do site da prefeitura, 3 notícias mais recentes,
+    gera roteiro ~2 min, persona locutor profissional. Para uso na admin (ver roteiro e gerar áudio).
+    """
+    news = fetch_news_louveira()
+    if not news:
+        raise RuntimeError("Nenhuma notícia encontrada no site de Louveira.")
     return generate_radio_script(news)
 
 

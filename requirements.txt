@@ -7,10 +7,6 @@ google-generativeai>=0.8.0
 python-dotenv>=1.0.0
 pydub>=0.25.0
 feedparser>=6.0.0
+requests>=2.28.0
+beautifulsoup4>=4.11.0
 pygame>=2.5.0
-elevenlabs
-feedparser
-google-generativeai
-pydub
-python-dotenv
-flask
