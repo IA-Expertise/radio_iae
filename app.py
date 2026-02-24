@@ -264,8 +264,10 @@ def api_gerar_roteiro_louveira():
 @app.route("/api/gerar-audio-boletim", methods=["POST"])
 def api_gerar_audio_boletim():
     """
-    Recebe o roteiro (body.script), gera áudio ElevenLabs, grava em output/blocks/, adiciona à fila da rádio.
-    Programação fica: boletim → música → música → ...
+    Recebe o roteiro (body.script), gera áudio ElevenLabs, grava em output/blocks/.
+    Adiciona 1 boletim à rádio (não gera os 15 blocos da semana).
+    - substituir_fila=true: esvazia a fila e deixa só este boletim (o que toca na rádio passa a ser só este até gerar mais).
+    - substituir_fila=false ou omitido: coloca este boletim no INÍCIO da fila (toca na próxima vez que for vez de notícia).
     """
     if not _check_admin_secret():
         return jsonify({"ok": False, "error": "Acesso negado."}), 403
@@ -273,6 +275,7 @@ def api_gerar_audio_boletim():
     script = (data.get("script") or "").strip()
     if not script:
         return jsonify({"ok": False, "error": "Roteiro vazio. Gere o roteiro antes ou cole o texto."}), 400
+    substituir_fila = data.get("substituir_fila") is True
     try:
         closing = _get_next_closing()
         full_script = script + " [pausa] " + closing
@@ -287,10 +290,13 @@ def api_gerar_audio_boletim():
         else:
             normalize_audio(NEWS_FILE, dest)
         with _lock:
-            ready_blocks.append(name)
+            if substituir_fila:
+                ready_blocks.clear()
+            ready_blocks.insert(0, name)
+        msg = "Boletim gravado. Fila substituída: só este boletim toca na rádio até você gerar mais." if substituir_fila else "Boletim gravado e colocado no início da fila. Tocará na próxima vez que for vez de notícia."
         return jsonify({
             "ok": True,
-            "message": "Boletim gravado e colocado na programação. Ciclo: boletim → música → música.",
+            "message": msg,
             "block": name,
         })
     except Exception as e:

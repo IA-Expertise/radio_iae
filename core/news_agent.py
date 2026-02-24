@@ -174,13 +174,13 @@ def generate_radio_script(news: list[dict], long_form: bool = False) -> str:
     if long_form:
         system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública.
 Regras OBRIGATÓRIAS (siga TODAS sem exceção):
-1. MÍNIMO ABSOLUTO: 350 palavras. O roteiro DEVE ter entre 350 e 400 palavras. Roteiros com menos de 300 palavras serão REJEITADOS.
-2. Desenvolva CADA uma das notícias em parágrafos separados: abertura, contexto, detalhes relevantes e desfecho. NUNCA resuma uma notícia em uma ou duas frases.
-3. Use a marcação [pausa] entre blocos (após cada notícia e em transições).
+1. O roteiro deve ter EXATAMENTE 3 MATÉRIAS, na mesma ordem em que as notícias são fornecidas: primeiro a Notícia 1 (completa), depois [pausa], depois a Notícia 2 (completa), depois [pausa], depois a Notícia 3 (completa). NUNCA junte as 3 em uma única matéria longa. Cada uma das 3 notícias deve ter seu próprio bloco desenvolvido (abertura, contexto, detalhes, desfecho).
+2. Total: entre 320 e 380 palavras (~2 minutos). Distribua o tempo entre as 3 matérias (cada uma com ~1 minuto de leitura em mente, ou ~100–130 palavras por notícia).
+3. Use a marcação [pausa] entre cada uma das 3 matérias e em transições.
 4. Base apenas nas notícias fornecidas; não invente dados.
 5. Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
-6. Saída: APENAS o texto do roteiro, sem título, sem contagem de palavras, sem comentários. Comece direto com a abertura (ex.: "Bom dia, ouvintes.")."""
-        user_head = "ATENÇÃO: O roteiro DEVE ter NO MÍNIMO 350 palavras (cerca de 2 minutos de leitura em voz alta). Desenvolva cada notícia com abertura, contexto, detalhes e desfecho em parágrafos separados. NÃO resuma. NÃO seja breve. Use [pausa] entre blocos.\n\nNotícias:\n\n"
+6. Saída: APENAS o texto do roteiro, sem título, sem contagem. Comece com abertura breve (ex.: "Bom dia, ouvintes. Notícias do dia.") e em seguida a primeira matéria."""
+        user_head = "As notícias abaixo são 3 MATÉRIAS DIFERENTES da prefeitura. Escreva um roteiro de 2 MINUTOS com 3 BLOCOS DISTINTOS: bloco 1 = só a Notícia 1; bloco 2 = só a Notícia 2; bloco 3 = só a Notícia 3. Use [pausa] entre os blocos. NÃO misture as 3 em uma única história. Desenvolva cada notícia com contexto e desfecho. Total 320–380 palavras.\n\nNotícias:\n\n"
         max_tokens = 2000
     else:
         system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
@@ -200,7 +200,10 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
     )
 
     news_text = build_script_prompt(news)
-    user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro. Lembre-se: mínimo 320 palavras, desenvolva cada notícia."
+    if long_form:
+        user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro. Três matérias distintas, [pausa] entre cada uma, total 320–380 palavras."
+    else:
+        user_prompt = user_head + news_text + "\n\nGere somente o texto do roteiro. Lembre-se: mínimo 320 palavras, desenvolva cada notícia."
 
     best_script = ""
     best_words = 0
@@ -228,13 +231,20 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
         if wc >= MIN_WORDS:
             return script
 
-        user_prompt = (
-            f"O roteiro anterior ficou com apenas {wc} palavras. É MUITO CURTO. "
-            f"Reescreva o roteiro com NO MÍNIMO 350 palavras. Desenvolva CADA notícia "
-            f"com mais contexto, detalhes e explicações. Cada notícia deve ter pelo menos "
-            f"3 parágrafos. Use [pausa] entre blocos.\n\n" + news_text +
-            "\n\nGere somente o texto do roteiro completo. MÍNIMO 350 palavras."
-        )
+        if long_form:
+            user_prompt = (
+                f"O roteiro anterior ficou com apenas {wc} palavras. É MUITO CURTO. "
+                f"Reescreva com 3 MATÉRIAS DISTINTAS (uma para cada notícia), [pausa] entre cada uma. "
+                f"Mínimo 320 palavras no total. Desenvolva cada notícia com contexto e desfecho.\n\n" + news_text +
+                "\n\nGere somente o texto do roteiro. Três blocos, um por notícia."
+            )
+        else:
+            user_prompt = (
+                f"O roteiro anterior ficou com apenas {wc} palavras. É MUITO CURTO. "
+                f"Reescreva o roteiro com NO MÍNIMO 350 palavras. Desenvolva CADA notícia "
+                f"com mais contexto, detalhes e explicações. Use [pausa] entre blocos.\n\n" + news_text +
+                "\n\nGere somente o texto do roteiro completo. MÍNIMO 350 palavras."
+            )
 
     if not best_script:
         raise RuntimeError("Gemini não retornou texto para o roteiro.")

@@ -68,6 +68,9 @@
       resize: vertical;
       margin-bottom: 0.5rem;
     }
+    .opt { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; }
+    .opt input { cursor: pointer; }
+    .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
     a { color: var(--accent); text-decoration: none; margin-top: 0.5rem; display: inline-block; }
     a:hover { text-decoration: underline; }
   </style>
@@ -75,19 +78,21 @@
 <body>
   <div class="card">
     <h1>Boletim Louveira (teste)</h1>
-    <p>Scraping do site da prefeitura + roteiro ~2 min. Revise o texto e depois grave o áudio para a rádio.</p>
+    <p>Scraping das 3 notícias mais recentes da prefeitura → roteiro de 2 min (3 matérias). Revise e grave 1 áudio para a rádio.</p>
     <h2>Roteiro</h2>
     <textarea id="roteiro" placeholder="Clique em «Gerar roteiro» para preencher. Pode editar antes de gerar o áudio."></textarea>
     <div>
       <button id="btn-roteiro" class="btn" type="button">📄 Gerar roteiro</button>
       <button id="btn-audio" class="btn btn-sec" type="button">🎙️ Gerar áudio e colocar na rádio</button>
     </div>
+    <label class="opt"><input type="checkbox" id="substituir-fila" /> Substituir fila da rádio por este boletim (só toca este até gerar mais)</label>
     <p id="status-louveira" class="status"></p>
+    <p class="hint">Adiciona 1 boletim apenas. Não dispara os 15 blocos da semana.</p>
   </div>
 
   <div class="card">
     <h1>Gerar blocos da semana</h1>
-    <p>Dispara os 15 blocos (notícias + dicas). Use uma vez por semana.</p>
+    <p>Dispara 15 blocos (notícias + dicas) em background. Use uma vez por semana. Não afeta o boletim Louveira acima.</p>
     <button id="btn-gerar" class="btn" type="button">📻 Gerar blocos da semana</button>
     <p id="status" class="status"></p>
     <a href="/">← Voltar para a Rádio</a>
@@ -141,6 +146,7 @@
     btnAudio.addEventListener('click', async () => {
       const key = getKey();
       const script = roteiroEl.value.trim();
+      const substituirFila = document.getElementById('substituir-fila').checked;
       if (!key) {
         statusLouveira.textContent = 'Chave não encontrada.';
         return;
@@ -155,7 +161,7 @@
         const res = await fetch('/api/gerar-audio-boletim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: payload({ script }),
+          body: payload({ script, substituir_fila: substituirFila }),
         });
         const data = await res.json();
         if (res.ok && data.ok) {
