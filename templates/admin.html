@@ -90,10 +90,12 @@
   </div>
 
   <div class="card">
-    <h1>Boletim Louveira (teste)</h1>
-    <p>Scraping das 3 notícias mais recentes da prefeitura → roteiro de 2 min (3 matérias). Revise e grave 1 áudio para a rádio.</p>
+    <h1>Boletim por feed RSS/JSON</h1>
+    <p>Cole a URL do feed (rss.app, RSS, Atom). As 3 notícias mais recentes viram roteiro de ~2 min; o corpo de cada matéria é obtido por scraping. Deixe em branco para usar o feed padrão (Louveira).</p>
+    <label class="opt" style="display:block; margin-bottom: 0.5rem;">URL do feed</label>
+    <input type="url" id="feed-url" placeholder="https://rss.app/feeds/... ou qualquer RSS/JSON" style="width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--text-muted); border-radius: 8px; color: var(--text); font-size: 0.9rem; margin-bottom: 0.75rem; box-sizing: border-box;" />
     <h2>Roteiro</h2>
-    <textarea id="roteiro" placeholder="Preencha com «Gerar roteiro» (Louveira ou texto colado acima). Pode editar antes de gerar o áudio."></textarea>
+    <textarea id="roteiro" placeholder="Preencha com «Gerar roteiro» (feed acima ou texto colado). Pode editar antes de gerar o áudio."></textarea>
     <div>
       <button id="btn-roteiro" class="btn" type="button">📄 Gerar roteiro</button>
       <button id="btn-audio" class="btn btn-sec" type="button">🎙️ Gerar áudio e colocar na rádio</button>
@@ -169,6 +171,8 @@
       btnRoteiroFonte.disabled = false;
     });
 
+    const feedUrlEl = document.getElementById('feed-url');
+
     btnRoteiro.addEventListener('click', async () => {
       const key = getKey();
       if (!key) {
@@ -176,13 +180,13 @@
         return;
       }
       btnRoteiro.disabled = true;
-      statusLouveira.textContent = 'Scraping Louveira e gerando roteiro…';
+      statusLouveira.textContent = 'Buscando feed e gerando roteiro…';
       roteiroEl.value = '';
       try {
         const res = await fetch('/api/gerar-roteiro-louveira', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: payload(),
+          body: payload({ feed_url: feedUrlEl.value.trim() || undefined }),
         });
         const data = await res.json();
         if (res.ok && data.ok && data.script) {

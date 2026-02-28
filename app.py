@@ -250,12 +250,15 @@ def api_gerar_semana():
 @app.route("/api/gerar-roteiro-louveira", methods=["POST"])
 def api_gerar_roteiro_louveira():
     """
-    Scraping Louveira + Gemini → roteiro completo. Retorna o texto para exibir na admin (e depois gerar áudio).
+    Feed (URL colada ou padrão) + scraping do corpo + Gemini → roteiro completo.
+    Body opcional: { "feed_url": "https://..." }. Se feed_url vazio/omitido, usa o feed padrão.
     """
     if not _check_admin_secret():
         return jsonify({"ok": False, "error": "Acesso negado."}), 403
+    data = request.get_json(silent=True) or {}
+    feed_url = (data.get("feed_url") or "").strip() or None
     try:
-        script = run_louveira()
+        script = run_louveira(feed_url=feed_url)
         return jsonify({"ok": True, "script": script})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

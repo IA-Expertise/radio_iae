@@ -6,8 +6,6 @@ Scraper Louveira: notícias locais do site da prefeitura para roteiro ~2 min, pe
 
 import os
 import re
-from urllib.parse import urljoin
-
 from dotenv import load_dotenv
 import feedparser
 import google.generativeai as genai
@@ -24,9 +22,8 @@ GOOGLE_NEWS_RSS = (
 # Quantidade de notícias para o roteiro
 TOP_N = 3
 
-# Scraper Louveira (prefeitura)
-LOUVEIRA_BASE = "https://www.louveira.sp.gov.br"
-LOUVEIRA_NOTICIAS_URL = "https://www.louveira.sp.gov.br/noticias"
+# Boletim por feed: URL padrão (ex. Louveira); o usuário pode colar qualquer feed no admin
+LOUVEIRA_JSON_FEED = "https://rss.app/feeds/v1.1/Td6Rdgydp13qn427.json"
 LOUVEIRA_TIMEOUT = 15
 LOUVEIRA_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; RadioIA/1.0)"}
 
@@ -42,81 +39,42 @@ def _get_api_key() -> str:
     return key
 
 
-def fetch_news_louveira() -> list[dict]:
+def fetch_news_louveira(feed_url: str | None = None) -> list[dict]:
     """
-    Scraping do site da Prefeitura de Louveira: pega as 3 notícias mais recentes da listagem,
-    entra em cada link e extrai título e texto completo. Retorna lista com 'title' e 'summary' (corpo).
+    Pega as 3 notícias mais recentes do feed (JSON Feed ou RSS/Atom). Se feed_url for
+    informado, usa essa URL; senão usa LOUVEIRA_JSON_FEED. Entra em cada URL e extrai
+    o corpo da matéria (scraping). Retorna lista com 'title', 'url' e 'summary'.
     """
-    out: list[dict] = []
+    url = (feed_url or "").strip() or LOUVEIRA_JSON_FEED
     try:
-        r = requests.get(LOUVEIRA_NOTICIAS_URL, timeout=LOUVEIRA_TIMEOUT, headers=LOUVEIRA_HEADERS)
+        r = requests.get(url, timeout=LOUVEIRA_TIMEOUT, headers=LOUVEIRA_HEADERS)
         r.raise_for_status()
     except Exception as e:
-        raise RuntimeError(f"Erro ao acessar página de notícias de Louveira: {e}") from e
+        raise RuntimeError(f"Erro ao acessar feed: {e}") from e
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    seen: set[str] = set()
-
-    def _is_pagination_or_generic(href: str) -> bool:
-        """Exclui apenas paginação (/busca/) e link genérico da listagem."""
-        if not href or not href.startswith("/noticias/"):
-            return True
-        if href.rstrip("/") == "/noticias":
-            return True
-        if "/busca/" in href:
-            return True
-        return False
-
-    # Estratégia 1: notícias em h2; link pode ser o <a> pai do h2 ou um <a> no mesmo bloco (card)
-    for h2 in soup.find_all(["h2", "h3"]):
-        if len(out) >= TOP_N:
-            break
-        t = h2.get_text(strip=True)
-        if not t or len(t) < 15:
-            continue
-        href = None
-        link_el = h2.find_parent("a")
-        if link_el and link_el.get("href"):
-            href = (link_el.get("href") or "").strip()
-        if not href or _is_pagination_or_generic(href):
-            # Link no mesmo card: procurar <a> no pai ou avô do h2 (evita pegar link do layout inteiro)
-            for container in [h2.parent, h2.parent.parent if h2.parent else None]:
-                if not container or container.name == "body":
+    out: list[dict] = []
+    try:
+        data = r.json()
+        if isinstance(data, dict) and data.get("items"):
+            for item in data["items"][:TOP_N]:
+                title = (item.get("title") or "").strip()[:200]
+                link = (item.get("url") or item.get("link") or "").strip()
+                if not title or not link:
                     continue
-                for a in container.find_all("a", href=True):
-                    h = (a.get("href") or "").strip()
-                    if not _is_pagination_or_generic(h) and h.startswith("/noticias/"):
-                        href = h
-                        break
-                if href and not _is_pagination_or_generic(href):
-                    break
-        if not href or _is_pagination_or_generic(href):
-            continue
-        full_url = urljoin(LOUVEIRA_BASE, href)
-        if full_url in seen:
-            continue
-        seen.add(full_url)
-        out.append({"title": t[:200], "url": full_url})
+                out.append({"title": title, "url": link})
+    except Exception:
+        pass
+    if not out:
+        feed = feedparser.parse(r.text)
+        for entry in feed.entries[:TOP_N]:
+            title = (entry.get("title") or "").strip()[:200]
+            link = (entry.get("link") or "").strip()
+            if not title or not link:
+                continue
+            out.append({"title": title, "url": link})
 
-    # Fallback: varrer todos os <a> com /noticias/ (excl. só paginação e link genérico)
-    if len(out) < TOP_N:
-        for a in soup.find_all("a", href=True):
-            if len(out) >= TOP_N:
-                break
-            href = (a.get("href") or "").strip()
-            if _is_pagination_or_generic(href):
-                continue
-            full_url = urljoin(LOUVEIRA_BASE, href)
-            if full_url in seen:
-                continue
-            title = (a.get_text(strip=True) or "").strip()
-            if not title or len(title) < 15:
-                continue
-            seen.add(full_url)
-            out.append({"title": title[:200], "url": full_url})
-
-    # Entrar em cada matéria e pegar o texto completo
-    for i, item in enumerate(out):
+    # Entrar em cada matéria e pegar o texto completo (scraping do corpo)
+    for item in out:
         url = item.get("url")
         if not url:
             item["summary"] = ""
@@ -208,7 +166,7 @@ Regras OBRIGATÓRIAS (siga TODAS sem exceção):
 4. Base apenas nas notícias fornecidas; não invente dados.
 5. Otimizado para voz: evite siglas soletradas; números por extenso ou "mil" em vez de "1.000".
 6. Saída: APENAS o texto do roteiro, sem título, sem contagem. Comece com abertura breve (ex.: "Bom dia, ouvintes. Notícias do dia.") e em seguida a primeira matéria."""
-        user_head = "As notícias abaixo são 3 MATÉRIAS DIFERENTES da prefeitura. Escreva um roteiro de 2 MINUTOS com 3 BLOCOS DISTINTOS: bloco 1 = só a Notícia 1; bloco 2 = só a Notícia 2; bloco 3 = só a Notícia 3. Use [pausa] entre os blocos. NÃO misture as 3 em uma única história. Desenvolva cada notícia com contexto e desfecho. Total 320–380 palavras.\n\nNotícias:\n\n"
+        user_head = "As notícias abaixo são 3 MATÉRIAS DIFERENTES (podem ser de prefeitura, câmara, jornal ou outra fonte). Escreva um roteiro de 2 MINUTOS com 3 BLOCOS DISTINTOS: bloco 1 = só a Notícia 1; bloco 2 = só a Notícia 2; bloco 3 = só a Notícia 3. Use [pausa] entre os blocos. NÃO misture as 3 em uma única história. Desenvolva cada notícia com contexto e desfecho. Total 320–380 palavras.\n\nNotícias:\n\n"
         max_tokens = 2000
     else:
         system_instruction = """Você é um locutor de rádio brasileiro experiente. Tom profissional, frases curtas e claras, focado em utilidade pública e informação objetiva.
@@ -290,14 +248,14 @@ def run() -> str:
     return generate_radio_script(news)
 
 
-def run_louveira() -> str:
+def run_louveira(feed_url: str | None = None) -> str:
     """
-    Fluxo Louveira: scraping do site da prefeitura, 3 notícias mais recentes,
-    gera roteiro ~2 min (long_form), persona locutor profissional. Para uso na admin.
+    Fluxo boletim por feed: usa a URL do feed (JSON ou RSS/Atom) informada ou o padrão,
+    pega as 3 notícias mais recentes, scraping do corpo, gera roteiro ~2 min (long_form).
     """
-    news = fetch_news_louveira()
+    news = fetch_news_louveira(feed_url=feed_url)
     if not news:
-        raise RuntimeError("Nenhuma notícia encontrada no site de Louveira.")
+        raise RuntimeError("Nenhuma notícia encontrada no feed.")
     return generate_radio_script(news, long_form=True)
 
 
