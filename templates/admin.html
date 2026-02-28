@@ -71,6 +71,7 @@
     .opt { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; }
     .opt input { cursor: pointer; }
     .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+    code { background: var(--bg); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.85em; }
     .player-wrap { margin-top: 0.75rem; }
     .player-audio { width: 100%; max-width: 100%; height: 40px; margin-bottom: 0.25rem; }
     a { color: var(--accent); text-decoration: none; margin-top: 0.5rem; display: inline-block; }
@@ -79,10 +80,20 @@
 </head>
 <body>
   <div class="card">
+    <h1>Boletim a partir de texto colado</h1>
+    <p>Para portais fechados ou quando não há scraping: cole aqui o conteúdo (título e texto de cada notícia). Separe cada notícia com uma linha em branco ou <code>---</code>. Depois gere o roteiro e use o campo «Roteiro» abaixo para editar e gravar o áudio.</p>
+    <textarea id="fonte-colada" placeholder="Cole aqui o texto das notícias (ou HTML). Ex.:&#10;&#10;Título da primeira notícia&#10;Parágrafo com o resumo ou corpo da matéria...&#10;&#10;---&#10;&#10;Título da segunda notícia&#10;Texto..."></textarea>
+    <div>
+      <button id="btn-roteiro-fonte" class="btn" type="button">📄 Gerar roteiro a partir desta fonte</button>
+    </div>
+    <p id="status-fonte" class="status"></p>
+  </div>
+
+  <div class="card">
     <h1>Boletim Louveira (teste)</h1>
     <p>Scraping das 3 notícias mais recentes da prefeitura → roteiro de 2 min (3 matérias). Revise e grave 1 áudio para a rádio.</p>
     <h2>Roteiro</h2>
-    <textarea id="roteiro" placeholder="Clique em «Gerar roteiro» para preencher. Pode editar antes de gerar o áudio."></textarea>
+    <textarea id="roteiro" placeholder="Preencha com «Gerar roteiro» (Louveira ou texto colado acima). Pode editar antes de gerar o áudio."></textarea>
     <div>
       <button id="btn-roteiro" class="btn" type="button">📄 Gerar roteiro</button>
       <button id="btn-audio" class="btn btn-sec" type="button">🎙️ Gerar áudio e colocar na rádio</button>
@@ -110,9 +121,12 @@
     const btnGerar = document.getElementById('btn-gerar');
     const statusEl = document.getElementById('status');
     const btnRoteiro = document.getElementById('btn-roteiro');
+    const btnRoteiroFonte = document.getElementById('btn-roteiro-fonte');
     const btnAudio = document.getElementById('btn-audio');
     const roteiroEl = document.getElementById('roteiro');
+    const fonteColadaEl = document.getElementById('fonte-colada');
     const statusLouveira = document.getElementById('status-louveira');
+    const statusFonte = document.getElementById('status-fonte');
 
     function getKey() {
       const params = new URLSearchParams(window.location.search);
@@ -122,6 +136,38 @@
     function payload(extra) {
       return JSON.stringify({ secret: getKey(), ...extra });
     }
+
+    btnRoteiroFonte.addEventListener('click', async () => {
+      const key = getKey();
+      if (!key) {
+        statusFonte.textContent = 'Chave não encontrada. Use o link que você salvou nos favoritos.';
+        return;
+      }
+      const sourceText = fonteColadaEl.value.trim();
+      if (!sourceText) {
+        statusFonte.textContent = 'Cole o texto das notícias no campo acima e tente novamente.';
+        return;
+      }
+      btnRoteiroFonte.disabled = true;
+      statusFonte.textContent = 'Gerando roteiro a partir do texto colado…';
+      try {
+        const res = await fetch('/api/gerar-roteiro-de-fonte', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload({ source_text: sourceText }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok && data.script) {
+          roteiroEl.value = data.script;
+          statusFonte.textContent = 'Roteiro pronto no campo abaixo. Revise e clique em «Gerar áudio e colocar na rádio».';
+        } else {
+          statusFonte.textContent = data.error || 'Erro ao gerar roteiro.';
+        }
+      } catch (_) {
+        statusFonte.textContent = 'Erro ao chamar a API.';
+      }
+      btnRoteiroFonte.disabled = false;
+    });
 
     btnRoteiro.addEventListener('click', async () => {
       const key = getKey();

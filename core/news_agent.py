@@ -301,6 +301,57 @@ def run_louveira() -> str:
     return generate_radio_script(news, long_form=True)
 
 
+def parse_pasted_source(text: str) -> list[dict]:
+    """
+    Converte texto colado (ou HTML) em lista de notícias [{title, summary}].
+    Útil para sites fechados, paywall ou quando o usuário copia o conteúdo manualmente.
+    - Se contiver tags HTML, extrai apenas o texto.
+    - Quebra em blocos por linha em branco dupla, '---' ou 'Notícia N:'.
+    - Cada bloco: primeira linha = título, resto = resumo (até TOP_N blocos).
+    """
+    if not (text or "").strip():
+        return []
+    raw = text.strip()
+    if "<" in raw and ">" in raw:
+        soup = BeautifulSoup(raw, "html.parser")
+        raw = soup.get_text(separator="\n", strip=True)
+    raw = re.sub(r"\r\n", "\n", raw)
+    # Quebrar em blocos: --- ou \n\n ou "Notícia 1:" / "1."
+    parts = re.split(r"\n\s*---\s*\n|\n\n+", raw)
+    # Alternativa: linhas que começam com "Notícia 1:", "1.", etc.
+    if len(parts) == 1 and re.search(r"(?m)^\s*(Notícia\s*\d+\s*[:.]|\d+\.)\s*", raw):
+        parts = re.split(r"(?m)^\s*(?:Notícia\s*\d+\s*[:.]|\d+\.)\s*", raw)[1:]
+    news = []
+    for block in parts:
+        block = block.strip()
+        if not block or len(block) < 20:
+            continue
+        lines = [ln.strip() for ln in block.split("\n") if ln.strip()]
+        if not lines:
+            continue
+        title = lines[0][:200]
+        summary = " ".join(lines[1:]) if len(lines) > 1 else lines[0]
+        summary = re.sub(r"\s+", " ", summary).strip()[:8000]
+        news.append({"title": title, "summary": summary or title})
+        if len(news) >= TOP_N:
+            break
+    return news
+
+
+def run_from_pasted_source(text: str) -> str:
+    """
+    Gera roteiro a partir de texto colado pelo usuário (fonte manual).
+    Para portais fechados ou quando não há RSS/scraping disponível.
+    """
+    news = parse_pasted_source(text)
+    if not news:
+        raise RuntimeError(
+            "Nenhuma notícia encontrada no texto. Cole o conteúdo de uma ou mais notícias "
+            "(título e texto), separando cada notícia por uma linha em branco ou por '---'."
+        )
+    return generate_radio_script(news, long_form=True)
+
+
 if __name__ == "__main__":
     script = run()
     print(script)

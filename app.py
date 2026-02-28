@@ -20,7 +20,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 import google.generativeai as genai
 
 from core.mixer import get_next_track, mix_voice_with_bed, normalize_audio
-from core.news_agent import run as news_run, run_louveira
+from core.news_agent import run as news_run, run_louveira, run_from_pasted_source
 from core.voice_agent import run as voice_run
 
 app = Flask(__name__)
@@ -256,6 +256,25 @@ def api_gerar_roteiro_louveira():
         return jsonify({"ok": False, "error": "Acesso negado."}), 403
     try:
         script = run_louveira()
+        return jsonify({"ok": True, "script": script})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/gerar-roteiro-de-fonte", methods=["POST"])
+def api_gerar_roteiro_de_fonte():
+    """
+    Gera roteiro a partir de texto colado (fonte manual). Para portais fechados ou quando
+    o usuário copia o conteúdo do site. Body: { "source_text": "..." }.
+    """
+    if not _check_admin_secret():
+        return jsonify({"ok": False, "error": "Acesso negado."}), 403
+    data = request.get_json(silent=True) or {}
+    source_text = (data.get("source_text") or "").strip()
+    if not source_text:
+        return jsonify({"ok": False, "error": "Texto da fonte vazio. Cole o conteúdo no campo e tente novamente."}), 400
+    try:
+        script = run_from_pasted_source(source_text)
         return jsonify({"ok": True, "script": script})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
