@@ -57,18 +57,40 @@ def fetch_news_louveira() -> list[dict]:
     soup = BeautifulSoup(r.text, "html.parser")
     seen: set[str] = set()
 
-    # Estratégia 1: na página de Louveira as notícias estão em h2; pegar os 3 primeiros h2 e seus links (as 3 mais recentes)
+    def _is_pagination_or_generic(href: str) -> bool:
+        """Exclui apenas paginação (/busca/) e link genérico da listagem."""
+        if not href or not href.startswith("/noticias/"):
+            return True
+        if href.rstrip("/") == "/noticias":
+            return True
+        if "/busca/" in href:
+            return True
+        return False
+
+    # Estratégia 1: notícias em h2; link pode ser o <a> pai do h2 ou um <a> no mesmo bloco (card)
     for h2 in soup.find_all(["h2", "h3"]):
         if len(out) >= TOP_N:
             break
         t = h2.get_text(strip=True)
         if not t or len(t) < 15:
             continue
-        link = h2.find_parent("a")
-        if not link or not link.get("href"):
-            continue
-        href = (link.get("href") or "").strip()
-        if not href.startswith("/noticias/") or "/busca/" in href or "/secao/" in href:
+        href = None
+        link_el = h2.find_parent("a")
+        if link_el and link_el.get("href"):
+            href = (link_el.get("href") or "").strip()
+        if not href or _is_pagination_or_generic(href):
+            # Link no mesmo card: procurar <a> no pai ou avô do h2 (evita pegar link do layout inteiro)
+            for container in [h2.parent, h2.parent.parent if h2.parent else None]:
+                if not container or container.name == "body":
+                    continue
+                for a in container.find_all("a", href=True):
+                    h = (a.get("href") or "").strip()
+                    if not _is_pagination_or_generic(h) and h.startswith("/noticias/"):
+                        href = h
+                        break
+                if href and not _is_pagination_or_generic(href):
+                    break
+        if not href or _is_pagination_or_generic(href):
             continue
         full_url = urljoin(LOUVEIRA_BASE, href)
         if full_url in seen:
@@ -76,17 +98,15 @@ def fetch_news_louveira() -> list[dict]:
         seen.add(full_url)
         out.append({"title": t[:200], "url": full_url})
 
-    # Fallback: varrer todos os <a> com /noticias/ (excl. paginação e seção) e pegar as 3 primeiras
+    # Fallback: varrer todos os <a> com /noticias/ (excl. só paginação e link genérico)
     if len(out) < TOP_N:
         for a in soup.find_all("a", href=True):
             if len(out) >= TOP_N:
                 break
             href = (a.get("href") or "").strip()
-            if not href or not href.startswith("/noticias/"):
+            if _is_pagination_or_generic(href):
                 continue
             full_url = urljoin(LOUVEIRA_BASE, href)
-            if "/busca/" in href or href.rstrip("/") == "/noticias" or "/secao/" in href:
-                continue
             if full_url in seen:
                 continue
             title = (a.get_text(strip=True) or "").strip()
