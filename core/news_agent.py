@@ -55,37 +55,45 @@ def fetch_news_louveira() -> list[dict]:
         raise RuntimeError(f"Erro ao acessar página de notícias de Louveira: {e}") from e
 
     soup = BeautifulSoup(r.text, "html.parser")
-    # Links que parecem ser de matéria: /noticias/... com slug longo (não paginação como /busca/2)
-    seen = set()
-    for a in soup.find_all("a", href=True):
-        href = (a.get("href") or "").strip()
-        if not href or not href.startswith("/noticias/"):
-            continue
-        full_url = urljoin(LOUVEIRA_BASE, href)
-        # Ignora paginação e links genéricos
-        if "/busca/" in href or href.rstrip("/") == "/noticias":
-            continue
-        if full_url in seen:
-            continue
-        # Título: texto do link ou do h2 dentro
-        title = (a.get_text(strip=True) or "").strip()
-        if not title or len(title) < 15:
-            continue
-        seen.add(full_url)
-        out.append({"title": title[:200], "url": full_url})
+    seen: set[str] = set()
+
+    # Estratégia 1: na página de Louveira as notícias estão em h2; pegar os 3 primeiros h2 e seus links (as 3 mais recentes)
+    for h2 in soup.find_all(["h2", "h3"]):
         if len(out) >= TOP_N:
             break
+        t = h2.get_text(strip=True)
+        if not t or len(t) < 15:
+            continue
+        link = h2.find_parent("a")
+        if not link or not link.get("href"):
+            continue
+        href = (link.get("href") or "").strip()
+        if not href.startswith("/noticias/") or "/busca/" in href or "/secao/" in href:
+            continue
+        full_url = urljoin(LOUVEIRA_BASE, href)
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+        out.append({"title": t[:200], "url": full_url})
 
+    # Fallback: varrer todos os <a> com /noticias/ (excl. paginação e seção) e pegar as 3 primeiras
     if len(out) < TOP_N:
-        # Fallback: pega h2 da página (listagem sem links individuais claros)
-        for h2 in soup.find_all(["h2", "h3"])[:TOP_N]:
-            t = h2.get_text(strip=True)
-            if t and len(t) > 10 and len(out) < TOP_N:
-                link = h2.find_parent("a") if h2.find_parent("a") else None
-                url = urljoin(LOUVEIRA_BASE, link["href"]) if link and link.get("href") else None
-                if url and url not in seen:
-                    seen.add(url)
-                    out.append({"title": t[:200], "url": url})
+        for a in soup.find_all("a", href=True):
+            if len(out) >= TOP_N:
+                break
+            href = (a.get("href") or "").strip()
+            if not href or not href.startswith("/noticias/"):
+                continue
+            full_url = urljoin(LOUVEIRA_BASE, href)
+            if "/busca/" in href or href.rstrip("/") == "/noticias" or "/secao/" in href:
+                continue
+            if full_url in seen:
+                continue
+            title = (a.get_text(strip=True) or "").strip()
+            if not title or len(title) < 15:
+                continue
+            seen.add(full_url)
+            out.append({"title": title[:200], "url": full_url})
 
     # Entrar em cada matéria e pegar o texto completo
     for i, item in enumerate(out):
